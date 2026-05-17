@@ -9,7 +9,6 @@
 </head>
 <body>
   <div id="app">
-    <!-- Sidebar -->
     <aside id="sidebar">
       <div id="sidebar-header">
         <h1>Locatie Zoeker</h1>
@@ -21,12 +20,7 @@
         <label class="section-label">Mijn locatie</label>
         <div class="location-row">
           <div class="autocomplete-wrapper">
-            <input
-              id="location-input"
-              type="text"
-              placeholder="Typ een adres of stad..."
-              autocomplete="off"
-            />
+            <input id="location-input" type="text" placeholder="Typ een adres of stad…" autocomplete="off" />
             <ul id="autocomplete-list" class="autocomplete-list hidden"></ul>
           </div>
           <button id="gps-btn" title="Gebruik GPS-locatie">
@@ -54,25 +48,19 @@
       <section class="control-section">
         <label class="section-label">Vervoersmiddel</label>
         <div class="transport-row">
-          <button class="transport-btn active" data-mode="driving">
-            <span class="icon">🚗</span> Auto
-          </button>
-          <button class="transport-btn" data-mode="cycling">
-            <span class="icon">🚲</span> Fiets
-          </button>
-          <button class="transport-btn" data-mode="walking">
-            <span class="icon">🚶</span> Lopen
-          </button>
+          <button class="transport-btn active" data-mode="driving">🚗 Auto</button>
+          <button class="transport-btn" data-mode="cycling">🚲 Fiets</button>
+          <button class="transport-btn" data-mode="walking">🚶 Lopen</button>
         </div>
       </section>
 
-      <!-- Categorie -->
+      <!-- Categorie (multi-select) -->
       <section class="control-section">
-        <label class="section-label">Wat zoek je?</label>
+        <label class="section-label">Wat zoek je? <span class="label-hint">meerdere mogelijk</span></label>
         <div id="category-grid">
           <button class="cat-btn active" data-cat="cafe">☕ Koffie</button>
           <button class="cat-btn" data-cat="restaurant">🍽️ Restaurant</button>
-          <button class="cat-btn" data-cat="bar">🍺 Bar / Café</button>
+          <button class="cat-btn" data-cat="bar">🍺 Bar</button>
           <button class="cat-btn" data-cat="museum">🏛️ Museum</button>
           <button class="cat-btn" data-cat="park">🌳 Park</button>
           <button class="cat-btn" data-cat="hiking">🥾 Wandelen</button>
@@ -102,28 +90,34 @@
         </div>
       </section>
 
-      <!-- Zoekknop -->
       <button id="search-btn">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <circle cx="11" cy="11" r="8"/>
-          <path d="m21 21-4.35-4.35"/>
+          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
         </svg>
         Zoeken
       </button>
 
-      <!-- Resultaten -->
+      <!-- Resultatenheader -->
       <div id="results-header" class="hidden">
-        <span id="results-count"></span>
+        <div class="results-top">
+          <span id="results-count"></span>
+          <button id="surprise-btn" title="Verras me met een willekeurig resultaat">🎲 Verras me</button>
+        </div>
         <span id="radius-info"></span>
       </div>
+
+      <!-- Categoriefilter (verschijnt bij meerdere categorieën) -->
+      <div id="cat-filter-section" class="hidden">
+        <div id="cat-filter-bar"></div>
+      </div>
+
       <ul id="results-list"></ul>
     </aside>
 
-    <!-- Kaart -->
     <main id="map"></main>
   </div>
 
-  <!-- Detail popup -->
+  <!-- Detail modal -->
   <div id="detail-modal" class="modal hidden">
     <div class="modal-content">
       <button id="modal-close">&times;</button>
