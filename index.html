@@ -12,10 +12,16 @@
     <aside id="sidebar">
       <div id="sidebar-header">
         <h1>Locatie Zoeker</h1>
-        <p class="subtitle">Wat wil je doen in de buurt?</p>
+        <p class="subtitle">Ontdek wat er in de buurt is</p>
       </div>
 
-      <!-- Locatie -->
+      <!-- ── Mode tabs ─────────────────────────────────── -->
+      <div id="mode-tabs">
+        <button class="mode-tab active" data-mode="activity">🗺️ Activiteit</button>
+        <button class="mode-tab" data-mode="overnight">🌙 Overnachten</button>
+      </div>
+
+      <!-- ── Locatie (shared) ──────────────────────────── -->
       <section class="control-section">
         <label class="section-label">Mijn locatie</label>
         <div class="location-row">
@@ -25,26 +31,26 @@
           </div>
           <button id="gps-btn" title="Gebruik GPS-locatie">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="3"/>
-              <path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>
+              <circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>
               <circle cx="12" cy="12" r="9" stroke-dasharray="4 2"/>
             </svg>
           </button>
         </div>
       </section>
 
-      <!-- Reistijd -->
+      <!-- ── Reistijd (shared, range verschilt per modus) ── -->
       <section class="control-section">
-        <label class="section-label">
-          Reistijd: <strong id="time-display">15 min</strong>
-        </label>
+        <label class="section-label">Reistijd: <strong id="time-display">15 min</strong></label>
         <input id="time-slider" type="range" min="5" max="60" step="5" value="15" />
-        <div class="slider-ticks">
-          <span>5</span><span>15</span><span>30</span><span>45</span><span>60</span>
+        <div id="ticks-activity" class="slider-ticks">
+          <span>5m</span><span>15m</span><span>30m</span><span>45m</span><span>60m</span>
+        </div>
+        <div id="ticks-overnight" class="slider-ticks hidden">
+          <span>30m</span><span>2u</span><span>4u</span><span>8u</span><span>12u</span>
         </div>
       </section>
 
-      <!-- Vervoersmiddel -->
+      <!-- ── Vervoer (shared) ──────────────────────────── -->
       <section class="control-section">
         <label class="section-label">Vervoersmiddel</label>
         <div class="transport-row">
@@ -54,8 +60,8 @@
         </div>
       </section>
 
-      <!-- Categorie (multi-select) -->
-      <section class="control-section">
+      <!-- ── Activiteiten ──────────────────────────────── -->
+      <section id="section-activity" class="control-section">
         <label class="section-label">Wat zoek je? <span class="label-hint">meerdere mogelijk</span></label>
         <div id="category-grid">
           <button class="cat-btn active" data-cat="cafe">☕ Koffie</button>
@@ -73,20 +79,61 @@
         </div>
       </section>
 
-      <!-- Filters -->
-      <section class="control-section filters-row">
-        <label class="toggle-label">
-          <input type="checkbox" id="open-now-filter" />
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-          Nu geopend
-        </label>
-        <div class="sort-wrapper">
-          <label for="sort-select">Sorteren:</label>
-          <select id="sort-select">
-            <option value="distance">Afstand</option>
-            <option value="rating">Beoordeling</option>
-            <option value="name">Naam</option>
-          </select>
+      <!-- ── Overnachten ───────────────────────────────── -->
+      <section id="section-overnight" class="control-section hidden">
+        <label class="section-label">Type verblijf</label>
+        <div id="acc-type-row">
+          <button class="acc-type-btn active" data-type="camping">⛺ Camping</button>
+          <button class="acc-type-btn" data-type="hotel">🏨 Hotel / B&B</button>
+          <button class="acc-type-btn" data-type="vakantiewoning">🏠 Vakantiehuis</button>
+        </div>
+
+        <!-- Sterren (hotel) -->
+        <div id="star-filter-section" class="filter-sub hidden">
+          <label class="section-label sub">Minimaal sterren</label>
+          <div class="btn-row" id="star-btns">
+            <button class="filter-opt-btn active" data-value="0">Alle</button>
+            <button class="filter-opt-btn" data-value="2">⭐⭐</button>
+            <button class="filter-opt-btn" data-value="3">⭐⭐⭐</button>
+            <button class="filter-opt-btn" data-value="4">⭐⭐⭐⭐+</button>
+          </div>
+        </div>
+
+        <!-- Personen (vakantiewoning) -->
+        <div id="persons-filter-section" class="filter-sub hidden">
+          <label class="section-label sub">Minimaal personen</label>
+          <div class="btn-row" id="persons-btns">
+            <button class="filter-opt-btn active" data-value="0">Alle</button>
+            <button class="filter-opt-btn" data-value="2">2+</button>
+            <button class="filter-opt-btn" data-value="4">4+</button>
+            <button class="filter-opt-btn" data-value="6">6+</button>
+            <button class="filter-opt-btn" data-value="8">8+</button>
+          </div>
+        </div>
+
+        <!-- Voorzieningen (dynamic chips) -->
+        <div id="acc-amenity-section" class="filter-sub">
+          <label class="section-label sub">Voorzieningen <span class="label-hint">meerdere mogelijk</span></label>
+          <div id="acc-amenity-chips" class="chip-grid"></div>
+        </div>
+      </section>
+
+      <!-- ── Filters (shared) ──────────────────────────── -->
+      <section class="control-section">
+        <div class="filters-row">
+          <label class="toggle-label" id="open-now-wrapper">
+            <input type="checkbox" id="open-now-filter" />
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            Nu geopend
+          </label>
+          <div class="sort-wrapper">
+            <label for="sort-select">Sorteren:</label>
+            <select id="sort-select">
+              <option value="distance">Afstand</option>
+              <option value="rating">Beoordeling</option>
+              <option value="name">Naam</option>
+            </select>
+          </div>
         </div>
       </section>
 
@@ -97,7 +144,7 @@
         Zoeken
       </button>
 
-      <!-- Resultatenheader -->
+      <!-- ── Resultaten ────────────────────────────────── -->
       <div id="results-header" class="hidden">
         <div class="results-top">
           <span id="results-count"></span>
@@ -106,7 +153,7 @@
         <span id="radius-info"></span>
       </div>
 
-      <!-- Categoriefilter (verschijnt bij meerdere categorieën) -->
+      <!-- Post-search categoriefilter (activiteit, meerdere cats) -->
       <div id="cat-filter-section" class="hidden">
         <div id="cat-filter-bar"></div>
       </div>
