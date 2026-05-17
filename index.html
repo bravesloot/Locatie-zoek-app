@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Locatie Zoeker</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Sidebar -->
+    <aside id="sidebar">
+      <div id="sidebar-header">
+        <h1>Locatie Zoeker</h1>
+        <p class="subtitle">Wat wil je doen in de buurt?</p>
+      </div>
+
+      <!-- Locatie -->
+      <section class="control-section">
+        <label class="section-label">Mijn locatie</label>
+        <div class="location-row">
+          <div class="autocomplete-wrapper">
+            <input
+              id="location-input"
+              type="text"
+              placeholder="Typ een adres of stad..."
+              autocomplete="off"
+            />
+            <ul id="autocomplete-list" class="autocomplete-list hidden"></ul>
+          </div>
+          <button id="gps-btn" title="Gebruik GPS-locatie">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>
+              <circle cx="12" cy="12" r="9" stroke-dasharray="4 2"/>
+            </svg>
+          </button>
+        </div>
+      </section>
+
+      <!-- Reistijd -->
+      <section class="control-section">
+        <label class="section-label">
+          Reistijd: <strong id="time-display">15 min</strong>
+        </label>
+        <input id="time-slider" type="range" min="5" max="60" step="5" value="15" />
+        <div class="slider-ticks">
+          <span>5</span><span>15</span><span>30</span><span>45</span><span>60</span>
+        </div>
+      </section>
+
+      <!-- Vervoersmiddel -->
+      <section class="control-section">
+        <label class="section-label">Vervoersmiddel</label>
+        <div class="transport-row">
+          <button class="transport-btn active" data-mode="driving">
+            <span class="icon">🚗</span> Auto
+          </button>
+          <button class="transport-btn" data-mode="cycling">
+            <span class="icon">🚲</span> Fiets
+          </button>
+          <button class="transport-btn" data-mode="walking">
+            <span class="icon">🚶</span> Lopen
+          </button>
+        </div>
+      </section>
+
+      <!-- Categorie -->
+      <section class="control-section">
+        <label class="section-label">Wat zoek je?</label>
+        <div id="category-grid">
+          <button class="cat-btn active" data-cat="cafe">☕ Koffie</button>
+          <button class="cat-btn" data-cat="restaurant">🍽️ Restaurant</button>
+          <button class="cat-btn" data-cat="bar">🍺 Bar / Café</button>
+          <button class="cat-btn" data-cat="museum">🏛️ Museum</button>
+          <button class="cat-btn" data-cat="park">🌳 Park</button>
+          <button class="cat-btn" data-cat="hiking">🥾 Wandelen</button>
+          <button class="cat-btn" data-cat="supermarket">🛒 Supermarkt</button>
+          <button class="cat-btn" data-cat="library">📚 Bibliotheek</button>
+          <button class="cat-btn" data-cat="cinema">🎬 Bioscoop</button>
+          <button class="cat-btn" data-cat="bakery">🥐 Bakkerij</button>
+          <button class="cat-btn" data-cat="fast_food">🍔 Fastfood</button>
+          <button class="cat-btn" data-cat="playground">🛝 Speeltuin</button>
+        </div>
+      </section>
+
+      <!-- Filters -->
+      <section class="control-section filters-row">
+        <label class="toggle-label">
+          <input type="checkbox" id="open-now-filter" />
+          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          Nu geopend
+        </label>
+        <div class="sort-wrapper">
+          <label for="sort-select">Sorteren:</label>
+          <select id="sort-select">
+            <option value="distance">Afstand</option>
+            <option value="rating">Beoordeling</option>
+            <option value="name">Naam</option>
+          </select>
+        </div>
+      </section>
+
+      <!-- Zoekknop -->
+      <button id="search-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <circle cx="11" cy="11" r="8"/>
+          <path d="m21 21-4.35-4.35"/>
+        </svg>
+        Zoeken
+      </button>
+
+      <!-- Resultaten -->
+      <div id="results-header" class="hidden">
+        <span id="results-count"></span>
+        <span id="radius-info"></span>
+      </div>
+      <ul id="results-list"></ul>
+    </aside>
+
+    <!-- Kaart -->
+    <main id="map"></main>
+  </div>
+
+  <!-- Detail popup -->
+  <div id="detail-modal" class="modal hidden">
+    <div class="modal-content">
+      <button id="modal-close">&times;</button>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
