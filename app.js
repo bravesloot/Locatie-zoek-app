@@ -1,5 +1,50 @@
 'use strict';
 
+// ── SVG Glyphs (from design/data.jsx) ─────────────────────
+const GLYPHS = {
+  koffie:       '<path d="M5 7h10v9a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3z"/><path d="M15 10h2a2 2 0 0 1 0 4h-2"/>',
+  restaurant:   '<path d="M3 2v7c0 1.1.9 2 2 2h2a2 2 0 0 0 2-2V2M7 11v11M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3m0 0v7"/>',
+  bar:          '<path d="M8 22h8M12 11v11M17 3H7l1 5a4 4 0 0 0 8 0z"/>',
+  museum:       '<line x1="3" y1="22" x2="21" y2="22"/><line x1="6" y1="18" x2="6" y2="11"/><line x1="10" y1="18" x2="10" y2="11"/><line x1="14" y1="18" x2="14" y2="11"/><line x1="18" y1="18" x2="18" y2="11"/><polygon points="12 2 20 7 4 7"/>',
+  park:         '<polygon points="12 3 5 17 19 17"/><rect x="10" y="17" width="4" height="4"/>',
+  wandelen:     '<path d="M3 20l6-12 5 7 3-4 4 9"/>',
+  supermarkt:   '<circle cx="9" cy="20" r="1"/><circle cx="17" cy="20" r="1"/><polyline points="3 4 6 4 8 16 19 16 20 8 7 8"/>',
+  bibliotheek:  '<rect x="5" y="3" width="14" height="18"/><line x1="9" y1="3" x2="9" y2="21"/>',
+  bioscoop:     '<rect x="3" y="3" width="18" height="18"/><line x1="3" y1="8" x2="8" y2="8"/><line x1="3" y1="16" x2="8" y2="16"/><line x1="16" y1="8" x2="21" y2="8"/><line x1="16" y1="16" x2="21" y2="16"/>',
+  bakkerij:     '<path d="M3 14a9 5 0 0 1 18 0v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><line x1="9" y1="11" x2="8" y2="14"/><line x1="13" y1="11" x2="12" y2="14"/><line x1="17" y1="11" x2="16" y2="14"/>',
+  fastfood:     '<path d="M5 8a7 3 0 0 1 14 0v1H5zM5 18a7 3 0 0 0 14 0v-1H5z"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="15" x2="21" y2="15"/>',
+  speeltuin:    '<polygon points="12 3 14 10 21 12 14 14 12 21 10 14 3 12 10 10"/>',
+  camping:      '<polygon points="12 3 3 21 21 21"/><line x1="12" y1="3" x2="12" y2="21"/><polyline points="9 21 12 17 15 21"/>',
+  hotel:        '<path d="M2 4v16M22 8v12M2 17h20"/><path d="M2 8h16a4 4 0 0 1 4 4"/><circle cx="7" cy="10" r="1.5"/>',
+  vakantiehuis: '<polygon points="3 11 12 3 21 11"/><polyline points="5 9 5 21 19 21 19 9"/>',
+  favoriet:     '<polygon points="12 2 15 9 22 9 17 14 19 21 12 17 5 21 7 14 2 9 9 9"/>',
+};
+
+// Maps CATEGORY_MAP keys → GLYPHS keys
+const CAT_GLYPH = {
+  cafe: 'koffie', restaurant: 'restaurant', bar: 'bar', museum: 'museum',
+  park: 'park', hiking: 'wandelen', supermarket: 'supermarkt',
+  library: 'bibliotheek', cinema: 'bioscoop', bakery: 'bakkerij',
+  fast_food: 'fastfood', playground: 'speeltuin',
+};
+const ACC_GLYPH = { camping: 'camping', hotel: 'hotel', vakantiewoning: 'vakantiehuis' };
+
+// ── Starting points (from design/data.jsx) ─────────────────
+const STARTING_POINTS = [
+  { id: 'sp1', track: 'day-out', label: 'Restaurant met terras', sub: 'binnen 20 min fietsen',
+    apply: { transport: 'bike', timeMin: 0, timeMax: 20, categories: ['restaurant'] } },
+  { id: 'sp2', track: 'day-out', label: 'Museum met café',       sub: 'binnen 30 min auto',
+    apply: { transport: 'car',  timeMin: 0, timeMax: 30, categories: ['cafe', 'museum'] } },
+  { id: 'sp3', track: 'day-out', label: 'Speeltuin in de buurt', sub: 'binnen lopen',
+    apply: { transport: 'walk', timeMin: 0, timeMax: 15, categories: ['playground'] } },
+  { id: 'sp4', track: 'stays',   label: 'Camping met zwembad',   sub: 'binnen 90 min auto',
+    apply: { transport: 'car',  timeMin: 0, timeMax: 90,  stayType: 'camping', amenities: ['pool'] } },
+  { id: 'sp5', track: 'stays',   label: 'B&B met huisdieren',    sub: 'binnen 60 min',
+    apply: { transport: 'car',  timeMin: 0, timeMax: 60,  stayType: 'hotel', amenities: ['dogs'] } },
+  { id: 'sp6', track: 'stays',   label: 'Vakantiehuis · 6 pers.', sub: 'binnen 2 uur',
+    apply: { transport: 'car',  timeMin: 0, timeMax: 120, stayType: 'vakantiewoning', persons: 6 } },
+];
+
 // ── External APIs ──────────────────────────────────────────
 const VALHALLA = 'https://valhalla1.openstreetmap.de/isochrone';
 const OVERPASS = 'https://overpass-api.de/api/interpreter';
@@ -9,17 +54,17 @@ const SPEEDS   = { driving: 40, cycling: 15, walking: 5 };
 // ── i18n ───────────────────────────────────────────────────
 const TRANSLATIONS = {
   nl: {
-    title: 'Locatie Zoeker',
+    title: 'Bereik — locatieplanner',
     subtitle: 'Ontdek wat er in de buurt is',
-    activity: '🗺️ Activiteit',
-    overnight: '🌙 Overnachten',
+    modeDayOut: 'Vandaag uit',
+    modeStays: 'Overnachten',
+    activity: 'Vandaag uit',
+    overnight: 'Overnachten',
     myLocation: 'Mijn locatie',
     locationPh: 'Typ een adres of stad…',
-    travelTime: 'Reistijd',
+    howFar: 'Hoe ver wil je gaan?',
     transport: 'Vervoersmiddel',
-    car: '🚗 Auto',
-    bike: '🚲 Fiets',
-    walk: '🚶 Lopen',
+    car: 'Auto', bike: 'Fiets', walk: 'Lopen',
     whatSearch: 'Wat zoek je?',
     multiplePossible: 'meerdere mogelijk',
     accType: 'Type verblijf',
@@ -28,19 +73,25 @@ const TRANSLATIONS = {
     amenities: 'Voorzieningen',
     allOption: 'Alle',
     openNow: 'Nu geopend',
-    sortBy: 'Sorteren:',
+    sortBy: 'Sorteren',
     sortDist: 'Afstand',
+    sortTime: 'Reistijd',
     sortRating: 'Beoordeling',
     sortName: 'Naam',
     sortStars: '⭐ Sterren',
+    viewMap: 'Kaart',
+    viewList: 'Lijst',
     favorites: 'Favorieten',
     shareLink: 'Deel',
     surpriseMe: 'Verras me',
     legendOuter: 'Max bereikbaar',
     legendInner: 'Min. afstand',
+    startingPoints: 'Veelgebruikte zoekopdrachten',
+    resultsLabel: 'plekken binnen bereik',
     search: 'Zoeken',
     searching: 'Bezig…',
-    noResults: 'Geen resultaten. Pas de filters aan of vergroot de reistijd.',
+    noResults: 'Niets binnen bereik.',
+    noResultsSub: 'Probeer een ruimere reistijd, een ander vervoersmiddel, of laat de filters wat los.',
     moreResults: '+ {n} meer — verklein de reistijd voor betere resultaten',
     gpsFound: 'GPS-locatie gevonden!',
     gpsUnavail: 'GPS niet beschikbaar.',
@@ -51,28 +102,28 @@ const TRANSLATIONS = {
     lookupFailed: 'Kon de locatie niet opzoeken.',
     searchFailed: 'Zoeken mislukt. Probeer het opnieuw.',
     noSurprise: 'Geen resultaten om van te verrassen!',
-    linkCopied: 'Link gekopieerd naar klembord!',
+    linkCopied: 'Link gekopieerd!',
     linkFailed: 'Kon link niet kopiëren.',
-    favAdded: 'Toegevoegd aan favorieten ❤️',
-    favRemoved: 'Verwijderd uit favorieten',
-    from: 'Van',
-    to: 'tot',
-    min: 'min',
-    hour: 'uur',
+    favAdded: 'Opgeslagen',
+    favRemoved: 'Verwijderd',
+    from: 'Van', to: 'tot', min: 'min', hour: 'uur',
     roadNetwork: 'wegennetwerk',
     approxCircle: 'geschatte cirkel',
     fromLocation: 'van jouw locatie',
-    capacity: 'Capaciteit',
-    persons: 'personen',
-    rating: 'Beoordeling',
-    stars: 'sterren',
-    openStatus: 'Nu open',
-    closedStatus: 'Gesloten',
-    unknownHours: 'Tijden onbekend',
+    capacity: 'Capaciteit', persons: 'personen',
+    rating: 'Beoordeling', stars: 'sterren',
+    openStatus: 'Open', closedStatus: 'Gesloten', unknownHours: 'Tijden onbekend',
     searchBookNearby: 'Zoek & boek in de buurt',
     viewOnOSM: 'Bekijk op OpenStreetMap ↗',
-    locations: 'locatie',
-    locationsPlural: 'locaties',
+    locations: 'plek', locationsPlural: 'plekken',
+    nightLabel: '/ nacht',
+    bewaren: 'Bewaren', route: 'Route', booking: 'Booking',
+    'cat.cafe': 'Koffie', 'cat.restaurant': 'Restaurant', 'cat.bar': 'Bar',
+    'cat.museum': 'Museum', 'cat.park': 'Park', 'cat.hiking': 'Wandelen',
+    'cat.supermarket': 'Supermarkt', 'cat.library': 'Bibliotheek',
+    'cat.cinema': 'Bioscoop', 'cat.bakery': 'Bakkerij',
+    'cat.fast_food': 'Fastfood', 'cat.playground': 'Speeltuin',
+    'acc.camping': 'Camping', 'acc.hotel': 'Hotel / B&B', 'acc.house': 'Vakantiehuis',
     catLabels: {
       cafe: 'Koffie', restaurant: 'Restaurant', bar: 'Bar', museum: 'Museum',
       park: 'Park', hiking: 'Wandelen', supermarket: 'Supermarkt',
@@ -85,7 +136,7 @@ const TRANSLATIONS = {
       electric: '🔌 Elektra', dogs: '🐕 Honden', pool: '🏊 Zwembad',
       wifi: '📶 WiFi', shower: '🚿 Douches', shop: '🛒 Winkel', bbq: '🔥 BBQ',
       parking: '🅿️ Parkeren', restaurant: '🍽️ Restaurant', bar: '🍺 Bar',
-      spa: '💆 Spa/sauna', garden: '🌿 Tuin',
+      spa: '💆 Spa', garden: '🌿 Tuin',
     },
     amenityLabels: {
       Tent: 'Tent', Camper: 'Camper', Caravan: 'Caravan', Elektra: 'Elektra',
@@ -93,19 +144,20 @@ const TRANSLATIONS = {
       BBQ: 'BBQ', Parkeren: 'Parkeren', Restaurant: 'Restaurant', Bar: 'Bar',
       Spa: 'Spa', Tuin: 'Tuin',
     },
+    transportLabel: { driving: 'auto', cycling: 'fiets', walking: 'lopen' },
   },
   en: {
-    title: 'Location Finder',
+    title: 'Bereik — location planner',
     subtitle: 'Discover what\'s nearby',
-    activity: '🗺️ Activity',
-    overnight: '🌙 Stay overnight',
+    modeDayOut: 'Day out',
+    modeStays: 'Stays',
+    activity: 'Day out',
+    overnight: 'Stays',
     myLocation: 'My location',
     locationPh: 'Type an address or city…',
-    travelTime: 'Travel time',
+    howFar: 'How far do you want to go?',
     transport: 'Transport',
-    car: '🚗 Car',
-    bike: '🚲 Bike',
-    walk: '🚶 Walk',
+    car: 'Car', bike: 'Bike', walk: 'Walk',
     whatSearch: 'What are you looking for?',
     multiplePossible: 'multiple possible',
     accType: 'Accommodation type',
@@ -114,19 +166,25 @@ const TRANSLATIONS = {
     amenities: 'Amenities',
     allOption: 'All',
     openNow: 'Open now',
-    sortBy: 'Sort:',
+    sortBy: 'Sort',
     sortDist: 'Distance',
+    sortTime: 'Travel time',
     sortRating: 'Rating',
     sortName: 'Name',
     sortStars: '⭐ Stars',
+    viewMap: 'Map',
+    viewList: 'List',
     favorites: 'Favorites',
     shareLink: 'Share',
     surpriseMe: 'Surprise me',
     legendOuter: 'Max reachable',
     legendInner: 'Min. distance',
+    startingPoints: 'Common searches',
+    resultsLabel: 'places within reach',
     search: 'Search',
     searching: 'Searching…',
-    noResults: 'No results. Adjust filters or increase travel time.',
+    noResults: 'Nothing within reach.',
+    noResultsSub: 'Try a wider travel time, different transport, or ease the filters.',
     moreResults: '+ {n} more — reduce travel time for better results',
     gpsFound: 'GPS location found!',
     gpsUnavail: 'GPS not available.',
@@ -137,28 +195,28 @@ const TRANSLATIONS = {
     lookupFailed: 'Could not look up location.',
     searchFailed: 'Search failed. Please try again.',
     noSurprise: 'No results to surprise with!',
-    linkCopied: 'Link copied to clipboard!',
+    linkCopied: 'Link copied!',
     linkFailed: 'Could not copy link.',
-    favAdded: 'Added to favorites ❤️',
-    favRemoved: 'Removed from favorites',
-    from: 'From',
-    to: 'to',
-    min: 'min',
-    hour: 'hour',
+    favAdded: 'Saved',
+    favRemoved: 'Removed',
+    from: 'From', to: 'to', min: 'min', hour: 'hour',
     roadNetwork: 'road network',
     approxCircle: 'estimated circle',
     fromLocation: 'from your location',
-    capacity: 'Capacity',
-    persons: 'persons',
-    rating: 'Rating',
-    stars: 'stars',
-    openStatus: 'Open now',
-    closedStatus: 'Closed',
-    unknownHours: 'Hours unknown',
+    capacity: 'Capacity', persons: 'persons',
+    rating: 'Rating', stars: 'stars',
+    openStatus: 'Open', closedStatus: 'Closed', unknownHours: 'Hours unknown',
     searchBookNearby: 'Search & book nearby',
     viewOnOSM: 'View on OpenStreetMap ↗',
-    locations: 'location',
-    locationsPlural: 'locations',
+    locations: 'place', locationsPlural: 'places',
+    nightLabel: '/ night',
+    bewaren: 'Save', route: 'Route', booking: 'Booking',
+    'cat.cafe': 'Coffee', 'cat.restaurant': 'Restaurant', 'cat.bar': 'Bar',
+    'cat.museum': 'Museum', 'cat.park': 'Park', 'cat.hiking': 'Hiking',
+    'cat.supermarket': 'Supermarket', 'cat.library': 'Library',
+    'cat.cinema': 'Cinema', 'cat.bakery': 'Bakery',
+    'cat.fast_food': 'Fast food', 'cat.playground': 'Playground',
+    'acc.camping': 'Camping', 'acc.hotel': 'Hotel / B&B', 'acc.house': 'Holiday home',
     catLabels: {
       cafe: 'Coffee', restaurant: 'Restaurant', bar: 'Bar', museum: 'Museum',
       park: 'Park', hiking: 'Hiking', supermarket: 'Supermarket',
@@ -171,7 +229,7 @@ const TRANSLATIONS = {
       electric: '🔌 Electric', dogs: '🐕 Dogs', pool: '🏊 Pool',
       wifi: '📶 WiFi', shower: '🚿 Showers', shop: '🛒 Shop', bbq: '🔥 BBQ',
       parking: '🅿️ Parking', restaurant: '🍽️ Restaurant', bar: '🍺 Bar',
-      spa: '💆 Spa/sauna', garden: '🌿 Garden',
+      spa: '💆 Spa', garden: '🌿 Garden',
     },
     amenityLabels: {
       Tent: 'Tent', Camper: 'Camper', Caravan: 'Caravan', Elektra: 'Electric',
@@ -179,6 +237,7 @@ const TRANSLATIONS = {
       BBQ: 'BBQ', Parkeren: 'Parking', Restaurant: 'Restaurant', Bar: 'Bar',
       Spa: 'Spa', Tuin: 'Garden',
     },
+    transportLabel: { driving: 'car', cycling: 'bike', walking: 'walking' },
   },
 };
 
@@ -285,7 +344,7 @@ const ACC_TYPE_MAP = {
 };
 
 // ── State ──────────────────────────────────────────────────
-let map, isoLayer, markersLayer;
+let map, isoLayer, markersLayer, tileBase, tileLabels;
 let userLocation      = null;
 let currentMode       = 'activity';
 let selectedCats      = new Set(['cafe']);
@@ -302,16 +361,39 @@ let acTimer           = null;
 let favorites         = loadFavorites();
 let showFavOnly       = false;
 let lastInnerRing     = null;
+let selectedItemId    = null;
 
-// ── Map init ───────────────────────────────────────────────
+// ── SVG glyph helper ──────────────────────────────────────
+function svgGlyph(name, size = 16) {
+  if (!GLYPHS[name]) return '';
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="${size}" height="${size}">${GLYPHS[name]}</svg>`;
+}
+
+function injectGlyphs() {
+  document.querySelectorAll('.chip-glyph[data-glyph]').forEach(el => {
+    el.innerHTML = svgGlyph(el.dataset.glyph, 12);
+  });
+}
+
+// ── Map init ──────────────────────────────────────────────
 function initMap() {
   map = L.map('map').setView([52.3, 5.3], 8);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-    maxZoom: 19,
+  tileBase = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
+    maxZoom: 19, subdomains: 'abcd',
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · CARTO',
+  }).addTo(map);
+  tileLabels = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png', {
+    maxZoom: 19, subdomains: 'abcd', opacity: 0.7,
   }).addTo(map);
   isoLayer     = L.layerGroup().addTo(map);
   markersLayer = L.layerGroup().addTo(map);
+}
+
+function updateMapTheme() {
+  const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+  if (!tileBase || !tileLabels) return;
+  tileBase.setUrl(`https://{s}.basemaps.cartocdn.com/${dark ? 'dark_nolabels' : 'light_nolabels'}/{z}/{x}/{y}{r}.png`);
+  tileLabels.setUrl(`https://{s}.basemaps.cartocdn.com/${dark ? 'dark_only_labels' : 'light_only_labels'}/{z}/{x}/{y}{r}.png`);
 }
 
 // ── i18n apply ─────────────────────────────────────────────
@@ -319,15 +401,15 @@ function applyTranslations() {
   document.querySelectorAll('[data-i18n]').forEach(el => {
     const key = el.dataset.i18n;
     const txt = t(key);
-    if (txt) el.textContent = txt;
+    if (txt && txt !== key) el.textContent = txt;
   });
   document.querySelectorAll('[data-i18n-ph]').forEach(el => {
-    const key = el.dataset.i18nPh;
-    const txt = t(key);
+    const txt = t(el.dataset.i18nPh);
     if (txt) el.placeholder = txt;
   });
   document.title = t('title');
   updateRangeDisplay();
+  renderStartingPoints(currentMode);
   if (allResults.length) renderList();
 }
 
@@ -335,11 +417,13 @@ function applyTranslations() {
 function initDarkMode() {
   const saved = localStorage.getItem('lz_theme');
   if (saved) document.documentElement.setAttribute('data-theme', saved);
+  updateMapTheme();
   document.getElementById('dark-toggle').addEventListener('click', () => {
     const cur  = document.documentElement.getAttribute('data-theme');
     const next = cur === 'dark' ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', next);
     localStorage.setItem('lz_theme', next);
+    updateMapTheme();
   });
 }
 
@@ -347,96 +431,266 @@ function initDarkMode() {
 function initRangeSlider() {
   const minEl = document.getElementById('time-min');
   const maxEl = document.getElementById('time-max');
-
   const update = () => {
     let minV = parseInt(minEl.value);
     let maxV = parseInt(maxEl.value);
     const step = parseInt(minEl.step) || 5;
-    if (minV >= maxV) { minEl.value = Math.max(parseInt(minEl.min), maxV - step); minV = parseInt(minEl.value); }
+    if (minV >= maxV) {
+      minEl.value = Math.max(parseInt(minEl.min), maxV - step);
+    }
     updateRangeDisplay();
     updateRangeFill();
+    renderDonutPreview();
   };
-
   minEl.addEventListener('input', update);
   maxEl.addEventListener('input', update);
   update();
-  renderTicks();
 }
 
 function updateRangeDisplay() {
   const minEl = document.getElementById('time-min');
   const maxEl = document.getElementById('time-max');
-  const minV  = parseInt(minEl.value);
-  const maxV  = parseInt(maxEl.value);
-  const disp  = document.getElementById('range-display');
+  if (!minEl || !maxEl) return;
+  const minV = parseInt(minEl.value);
+  const maxV = parseInt(maxEl.value);
+  const txLabel = (t('transportLabel') || {})[selectedTransport] || selectedTransport;
+  const disp = document.getElementById('range-display');
   if (disp) {
-    disp.textContent = `${t('from')} ${formatTravelTime(minV)} ${t('to')} ${formatTravelTime(maxV)}`;
+    disp.innerHTML = `<b>${formatTravelTime(minV)}</b> ${t('to')} <b>${formatTravelTime(maxV)}</b> · met de ${txLabel}`;
   }
 }
 
 function updateRangeFill() {
-  const minEl   = document.getElementById('time-min');
-  const maxEl   = document.getElementById('time-max');
-  const fill    = document.getElementById('range-fill');
-  if (!fill) return;
-  const minV    = parseInt(minEl.value);
-  const maxV    = parseInt(maxEl.value);
-  const minPx   = parseInt(minEl.min);
-  const maxPx   = parseInt(maxEl.max);
-  const leftPct = ((minV - minPx) / (maxPx - minPx)) * 100;
-  const rightPct= ((maxV - minPx) / (maxPx - minPx)) * 100;
+  const minEl = document.getElementById('time-min');
+  const maxEl = document.getElementById('time-max');
+  const fill  = document.getElementById('range-fill');
+  if (!fill || !minEl || !maxEl) return;
+  const minV  = parseInt(minEl.value);
+  const maxV  = parseInt(maxEl.value);
+  const minPx = parseInt(minEl.min) || 0;
+  const maxPx = parseInt(maxEl.max) || 120;
+  const leftPct  = ((minV - minPx) / (maxPx - minPx)) * 100;
+  const rightPct = ((maxV - minPx) / (maxPx - minPx)) * 100;
   fill.style.left  = `${leftPct}%`;
   fill.style.width = `${rightPct - leftPct}%`;
 }
 
-function renderTicks() {
-  const container = document.getElementById('range-ticks');
-  if (!container) return;
-  const minEl = document.getElementById('time-min');
-  const min   = parseInt(minEl.min);
-  const max   = parseInt(minEl.max);
-  const step  = parseInt(minEl.step);
-  container.innerHTML = '';
-  for (let v = min; v <= max; v += step) {
-    const pct  = ((v - min) / (max - min)) * 100;
-    const span = document.createElement('span');
-    span.style.left    = `${pct}%`;
-    span.textContent   = formatTravelTime(v);
-    container.appendChild(span);
-  }
+function renderDonutPreview() {
+  const minEl   = document.getElementById('time-min');
+  const maxEl   = document.getElementById('time-max');
+  const preview = document.getElementById('tc-preview');
+  if (!preview || !minEl || !maxEl) return;
+  const minV  = parseInt(minEl.value, 10);
+  const maxV  = parseInt(maxEl.value, 10);
+  const ratio = maxV > 0 ? Math.min(0.85, minV / maxV) : 0;
+  const innerR = 30 + ratio * 40;
+  preview.innerHTML = `
+    <svg viewBox="0 0 200 200" fill="none">
+      <path d="M100,18 Q160,28 178,80 Q190,140 140,176 Q80,196 36,160 Q12,118 24,68 Q42,28 100,18 Z"
+        fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"/>
+      ${ratio > 0 ? `<circle cx="100" cy="100" r="${innerR.toFixed(1)}"
+        fill="var(--paper-2)" stroke="var(--accent)" stroke-width="1.2" stroke-dasharray="3 3"/>` : ''}
+      <circle cx="100" cy="100" r="3" fill="var(--ink)"/>
+    </svg>`;
 }
 
 function getEffectiveMin() {
   const minV = parseInt(document.getElementById('time-min').value);
   const maxV = parseInt(document.getElementById('time-max').value);
-  if (minV > parseInt(document.getElementById('time-min').min)) return minV;
-  if (currentMode === 'overnight') return Math.max(0, maxV - 120);
-  return 0;
+  const atBottom = minV <= parseInt(document.getElementById('time-min').min);
+  if (atBottom && currentMode === 'overnight') return Math.max(0, maxV - 60);
+  return atBottom ? 0 : minV;
 }
 
 function getEffectiveMax() {
   return parseInt(document.getElementById('time-max').value);
 }
 
+// ── Starting points ────────────────────────────────────────
+function renderStartingPoints(mode) {
+  const track = mode === 'overnight' ? 'stays' : 'day-out';
+  const items = STARTING_POINTS.filter(s => s.track === track);
+  const root  = document.getElementById('starting-points');
+  if (!root) return;
+
+  let html = `<div class="sp-head"><span class="sp-label">${escHtml(t('startingPoints'))}</span></div>`;
+  html += items.map(s => `
+    <button class="sp-row" data-preset="${s.id}">
+      <span class="sp-text">
+        <span class="sp-title">${escHtml(s.label)}</span>
+        <span class="sp-sub">— ${escHtml(s.sub)}</span>
+      </span>
+      <span class="sp-cta">→</span>
+    </button>`).join('');
+  root.innerHTML = html;
+
+  root.querySelectorAll('.sp-row').forEach(row => {
+    row.addEventListener('click', () => {
+      const sp = STARTING_POINTS.find(s => s.id === row.dataset.preset);
+      if (sp) applyPreset(sp.apply);
+      document.getElementById('search-btn').click();
+    });
+  });
+}
+
+function applyPreset(a) {
+  const transportMap = { car: 'driving', bike: 'cycling', walk: 'walking' };
+  if (a.transport) {
+    selectedTransport = transportMap[a.transport] || a.transport;
+    document.querySelectorAll('.transport-btn').forEach(b => {
+      const on = b.dataset.mode === selectedTransport;
+      b.classList.toggle('active', on);
+      b.classList.toggle('on', on);
+    });
+    updateRangeDisplay();
+  }
+  const minEl = document.getElementById('time-min');
+  const maxEl = document.getElementById('time-max');
+  if (a.timeMin !== undefined) minEl.value = a.timeMin;
+  if (a.timeMax !== undefined) maxEl.value = a.timeMax;
+  updateRangeDisplay(); updateRangeFill(); renderDonutPreview();
+
+  if (a.categories) {
+    selectedCats = new Set(a.categories.filter(c => CATEGORY_MAP[c]));
+    syncCatButtons();
+  }
+  if (a.stayType && ACC_TYPE_MAP[a.stayType]) {
+    selectedAccType = a.stayType;
+    document.querySelectorAll('.acc-type-btn').forEach(b => {
+      const on = b.dataset.type === selectedAccType;
+      b.classList.toggle('active', on); b.classList.toggle('on', on);
+    });
+    activeAccFilters.clear();
+    if (a.amenities) a.amenities.forEach(id => activeAccFilters.add(id));
+    renderAccFilters();
+  }
+  if (a.persons !== undefined) {
+    minPersons = a.persons;
+    document.querySelectorAll('#persons-btns .filter-opt-btn').forEach(b => {
+      const on = parseInt(b.dataset.value) === a.persons;
+      b.classList.toggle('active', on); b.classList.toggle('on', on);
+    });
+  }
+}
+
+// ── Screen state ───────────────────────────────────────────
+function setScreen(screen) {
+  const app = document.getElementById('app');
+  app.dataset.screen = screen;
+  const isResults = screen === 'results';
+
+  document.getElementById('view-toggle').classList.toggle('hidden', !isResults);
+  document.getElementById('back-btn').classList.toggle('hidden', !isResults);
+  document.getElementById('surprise-btn').classList.toggle('hidden', !isResults);
+  document.getElementById('share-btn').classList.toggle('hidden', !isResults);
+  document.getElementById('starting-points').classList.toggle('hidden', isResults);
+
+  if (isResults) {
+    syncFavBtn();
+    if (window.innerWidth < 1024) {
+      document.getElementById('sidebar').dataset.sheet = 'half';
+    }
+  }
+}
+
+// ── View toggle (Map ↔ List) ───────────────────────────────
+function initViewToggle() {
+  document.querySelectorAll('#view-toggle .seg-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#view-toggle .seg-btn').forEach(b => {
+        b.classList.remove('on', 'active');
+      });
+      btn.classList.add('on', 'active');
+      document.getElementById('app').dataset.view = btn.dataset.view;
+      if (btn.dataset.view === 'list' && window.innerWidth < 1024) {
+        document.getElementById('sidebar').dataset.sheet = 'full';
+      }
+    });
+  });
+}
+
+// ── Mobile bottom sheet drag ───────────────────────────────
+function initSheetDrag() {
+  const sheet = document.getElementById('sidebar');
+  const grab  = document.getElementById('sheet-grab');
+  if (!grab || !sheet) return;
+  const VH = { peek: 14, half: 52, full: 92 };
+  let drag = null;
+
+  grab.addEventListener('pointerdown', e => {
+    if (window.innerWidth >= 1024) return;
+    const startVh = VH[sheet.dataset.sheet || 'half'] || 52;
+    drag = { startY: e.clientY, startVh };
+    sheet.classList.add('dragging');
+    grab.setPointerCapture(e.pointerId);
+  });
+  window.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const dy = drag.startY - e.clientY;
+    const vh = Math.max(10, Math.min(96, drag.startVh + (dy / window.innerHeight) * 100));
+    sheet.style.height = `${vh}vh`;
+  });
+  window.addEventListener('pointerup', () => {
+    if (!drag) return;
+    const cur  = parseFloat(sheet.style.height) || VH.half;
+    const best = ['peek','half','full']
+      .reduce((a, k) => Math.abs(VH[k] - cur) < Math.abs(VH[a] - cur) ? k : a, 'half');
+    sheet.style.height = '';
+    sheet.dataset.sheet = best;
+    sheet.classList.remove('dragging');
+    drag = null;
+  });
+}
+
 // ── UI wiring ──────────────────────────────────────────────
 function initUI() {
   // Language
-  const langSel = document.getElementById('lang-select');
+  const langSel  = document.getElementById('lang-select');
   const userLang = navigator.language?.slice(0, 2) || 'nl';
   lang = ['nl', 'en'].includes(userLang) ? userLang : 'nl';
   langSel.value = lang;
-  langSel.addEventListener('change', () => { lang = langSel.value; applyTranslations(); renderTicks(); });
-  applyTranslations();
+  langSel.addEventListener('change', () => { lang = langSel.value; applyTranslations(); });
 
   // Dark mode
   initDarkMode();
 
+  // Inject SVG glyphs into chip elements
+  injectGlyphs();
+
   // Range slider
   initRangeSlider();
+
+  // View toggle
+  initViewToggle();
+
+  // Sheet drag (mobile)
+  initSheetDrag();
+
+  // Starting points (initial render)
+  renderStartingPoints(currentMode);
+
+  // Apply translations
+  applyTranslations();
 
   // Mode tabs
   document.querySelectorAll('.mode-tab').forEach(btn => {
     btn.addEventListener('click', () => switchMode(btn.dataset.mode));
+  });
+
+  // Back button
+  document.getElementById('back-btn').addEventListener('click', () => {
+    allResults = []; lastInnerRing = null; selectedItemId = null;
+    markersLayer.clearLayers();
+    isoLayer.clearLayers();
+    document.getElementById('results-header').classList.add('hidden');
+    document.getElementById('results-list').innerHTML = '';
+    document.getElementById('cat-filter-section').classList.add('hidden');
+    document.getElementById('map-legend').classList.add('hidden');
+    document.getElementById('app').dataset.view = '';
+    document.querySelectorAll('#view-toggle .seg-btn').forEach((b, i) => {
+      b.classList.toggle('on', i === 0); b.classList.toggle('active', i === 0);
+    });
+    setScreen('home');
   });
 
   // GPS
@@ -445,13 +699,17 @@ function initUI() {
   // Transport
   document.querySelectorAll('.transport-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.transport-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
+      document.querySelectorAll('.transport-btn').forEach(b => {
+        b.classList.remove('active', 'on');
+      });
+      btn.classList.add('active', 'on');
       selectedTransport = btn.dataset.mode;
+      updateRangeDisplay();
+      renderDonutPreview();
     });
   });
 
-  // Activity categories
+  // Category chips
   document.querySelectorAll('.cat-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const cat = btn.dataset.cat;
@@ -465,8 +723,8 @@ function initUI() {
   // Accommodation type
   document.querySelectorAll('.acc-type-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.acc-type-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
+      document.querySelectorAll('.acc-type-btn').forEach(b => b.classList.remove('active', 'on'));
+      btn.classList.add('active', 'on');
       selectedAccType = btn.dataset.type;
       activeAccFilters.clear(); minStars = 0; minPersons = 0;
       renderAccFilters();
@@ -476,16 +734,16 @@ function initUI() {
   // Star filter
   document.getElementById('star-btns').addEventListener('click', e => {
     const btn = e.target.closest('.filter-opt-btn'); if (!btn) return;
-    document.querySelectorAll('#star-btns .filter-opt-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active'); minStars = parseInt(btn.dataset.value);
+    document.querySelectorAll('#star-btns .filter-opt-btn').forEach(b => b.classList.remove('active', 'on'));
+    btn.classList.add('active', 'on'); minStars = parseInt(btn.dataset.value);
     if (allResults.length && currentMode === 'overnight') renderList();
   });
 
   // Persons filter
   document.getElementById('persons-btns').addEventListener('click', e => {
     const btn = e.target.closest('.filter-opt-btn'); if (!btn) return;
-    document.querySelectorAll('#persons-btns .filter-opt-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active'); minPersons = parseInt(btn.dataset.value);
+    document.querySelectorAll('#persons-btns .filter-opt-btn').forEach(b => b.classList.remove('active', 'on'));
+    btn.classList.add('active', 'on'); minPersons = parseInt(btn.dataset.value);
     if (allResults.length && currentMode === 'overnight') renderList();
   });
 
@@ -495,6 +753,7 @@ function initUI() {
     const id = chip.dataset.id;
     if (activeAccFilters.has(id)) activeAccFilters.delete(id); else activeAccFilters.add(id);
     chip.classList.toggle('active', activeAccFilters.has(id));
+    chip.classList.toggle('on',     activeAccFilters.has(id));
     if (allResults.length && currentMode === 'overnight') renderList();
   });
 
@@ -510,7 +769,7 @@ function initUI() {
     if (allResults.length) renderList();
   });
 
-  // Search button
+  // Search
   document.getElementById('search-btn').addEventListener('click', doSearch);
 
   // Surprise
@@ -519,7 +778,7 @@ function initUI() {
   // Favorites filter
   document.getElementById('fav-filter-btn').addEventListener('click', () => {
     showFavOnly = !showFavOnly;
-    document.getElementById('fav-filter-btn').classList.toggle('active', showFavOnly);
+    document.getElementById('fav-filter-btn').classList.toggle('on', showFavOnly);
     if (allResults.length) renderList();
   });
 
@@ -528,17 +787,30 @@ function initUI() {
 
   // Category filter chips (post-search)
   document.getElementById('cat-filter-bar').addEventListener('click', e => {
-    const chip = e.target.closest('.cat-chip'); if (!chip) return;
+    const chip = e.target.closest('.cat-filter, .cat-chip'); if (!chip) return;
     const cat = chip.dataset.cat;
     if (visibleCats.has(cat)) { if (visibleCats.size === 1) return; visibleCats.delete(cat); }
     else visibleCats.add(cat);
     syncCatChips(); renderList();
   });
 
-  // Modal
+  // Modal close
   document.getElementById('modal-close').addEventListener('click', closeModal);
   document.getElementById('detail-modal').addEventListener('click', e => {
     if (e.target === document.getElementById('detail-modal')) closeModal();
+  });
+
+  // Fav buttons (delegated from result list)
+  document.addEventListener('click', e => {
+    const btn = e.target.closest('.card-fav');
+    if (!btn) return;
+    e.stopPropagation();
+    const id = String(btn.dataset.id);
+    if (favorites.has(id)) { favorites.delete(id); showToast(t('favRemoved')); }
+    else { favorites.add(id); showToast(t('favAdded')); }
+    saveFavorites();
+    btn.setAttribute('aria-pressed', favorites.has(id));
+    syncFavBtn();
   });
 
   // Autocomplete
@@ -555,54 +827,54 @@ function initUI() {
   // Hash restore
   restoreFromHash();
 
-  // Init acc filters for default type
+  // Init acc filters
   renderAccFilters();
+
+  // Normalize 'on' classes on boot
+  document.querySelectorAll('.mode-tab.on, .transport-btn.on, .cat-btn.on, .acc-type-btn.on, .filter-opt-btn.on').forEach(el => {
+    el.classList.add('active');
+  });
 }
 
 // ── Mode switching ─────────────────────────────────────────
 function switchMode(mode) {
   if (mode === currentMode) return;
   currentMode = mode;
-  document.querySelectorAll('.mode-tab').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
 
-  const isActivity  = mode === 'activity';
+  document.querySelectorAll('.mode-tab').forEach(b => {
+    const on = b.dataset.mode === mode;
+    b.classList.toggle('active', on);
+    b.classList.toggle('on', on);
+  });
+
   const isOvernight = mode === 'overnight';
-
   document.getElementById('section-activity').classList.toggle('hidden', isOvernight);
-  document.getElementById('section-overnight').classList.toggle('hidden', isActivity);
+  document.getElementById('section-overnight').classList.toggle('hidden', !isOvernight);
   document.getElementById('open-now-wrapper').classList.toggle('hidden', isOvernight);
-
-  // Adjust slider range
-  const minEl = document.getElementById('time-min');
-  const maxEl = document.getElementById('time-max');
-  if (isOvernight) {
-    minEl.min = '0'; minEl.max = '660'; minEl.step = '30'; minEl.value = '0';
-    maxEl.min = '30'; maxEl.max = '720'; maxEl.step = '30'; maxEl.value = '120';
-  } else {
-    minEl.min = '0'; minEl.max = '55'; minEl.step = '5'; minEl.value = '0';
-    maxEl.min = '5'; maxEl.max = '60'; maxEl.step = '5'; maxEl.value = '15';
-  }
-  updateRangeDisplay(); updateRangeFill(); renderTicks();
 
   // Sort options
   const sortSel = document.getElementById('sort-select');
   let starsOpt = sortSel.querySelector('option[value="stars"]');
   if (isOvernight && !starsOpt) {
     const opt = document.createElement('option');
-    opt.value = 'stars'; opt.dataset.i18n = 'sortStars'; opt.textContent = t('sortStars');
+    opt.value = 'stars'; opt.textContent = t('sortStars');
     sortSel.appendChild(opt);
-  } else if (isActivity && starsOpt) {
+  } else if (!isOvernight && starsOpt) {
     sortSel.removeChild(starsOpt);
   }
   sortSel.value = 'distance'; currentSort = 'distance';
 
   // Clear results
-  allResults = []; lastInnerRing = null;
+  allResults = []; lastInnerRing = null; selectedItemId = null;
   markersLayer.clearLayers(); isoLayer.clearLayers();
   document.getElementById('results-header').classList.add('hidden');
   document.getElementById('results-list').innerHTML = '';
   document.getElementById('cat-filter-section').classList.add('hidden');
   document.getElementById('map-legend').classList.add('hidden');
+  if (document.getElementById('app').dataset.screen === 'results') setScreen('home');
+
+  // Update starting points
+  renderStartingPoints(mode);
 }
 
 // ── Accommodation filters ──────────────────────────────────
@@ -611,10 +883,12 @@ function renderAccFilters() {
   const chipCont   = document.getElementById('acc-amenity-chips');
   const starSec    = document.getElementById('star-filter-section');
   const personsSec = document.getElementById('persons-filter-section');
+  const filterLbls = t('filterLabels') || {};
 
   chipCont.innerHTML = typeInfo.filters.map(f => {
-    const label = (t('filterLabels') || {})[f.id] || f.id;
-    return `<button class="amenity-chip${activeAccFilters.has(f.id) ? ' active' : ''}" data-id="${f.id}">${label}</button>`;
+    const label  = filterLbls[f.id] || f.id;
+    const active = activeAccFilters.has(f.id);
+    return `<button class="amenity-chip chiplabel${active ? ' active on' : ''}" data-id="${f.id}">${label}</button>`;
   }).join('');
 
   starSec.classList.toggle('hidden', !typeInfo.hasStars);
@@ -693,24 +967,21 @@ async function doSearch() {
   const minMin = getEffectiveMin();
   const hasDonut = minMin > 0;
   setSearching(true);
-  allResults = []; lastInnerRing = null;
+  allResults = []; lastInnerRing = null; selectedItemId = null;
 
   try {
-    // 1. Outer isochrone
     let outerPolyStr  = null;
     let outerRingCoords = null;
     let usedFallback  = false;
-
-    const isLarge = maxMin > 180;
-    const generalize = maxMin > 480 ? 400 : isLarge ? 200 : 80;
+    const isLarge    = maxMin > 90;
+    const generalize = maxMin > 90 ? 150 : 80;
 
     try {
       const outerIso = await fetchIsochrone(userLocation, maxMin, selectedTransport, generalize, isLarge ? 20000 : 14000);
       outerRingCoords = extractRingCoords(outerIso);
       outerPolyStr   = coordsToOverpassPoly(outerRingCoords, maxMin);
 
-      // 2. Inner isochrone for donut
-      if (hasDonut && minMin > 0) {
+      if (hasDonut) {
         try {
           const innerIso = await fetchIsochrone(userLocation, minMin, selectedTransport, generalize, 12000);
           lastInnerRing  = extractRingCoords(innerIso);
@@ -729,12 +1000,11 @@ async function doSearch() {
       drawCircleFallback(userLocation, minutesToMeters(maxMin, selectedTransport));
     }
 
-    // 3. Legend
+    // Legend
     const legend = document.getElementById('map-legend');
     if (hasDonut && lastInnerRing) legend.classList.remove('hidden');
     else legend.classList.add('hidden');
 
-    // 4. Fetch places
     const radiusM = usedFallback ? minutesToMeters(maxMin, selectedTransport) : null;
 
     if (currentMode === 'activity') {
@@ -750,23 +1020,17 @@ async function doSearch() {
       allResults = processOvernightResults(raw, userLocation, selectedAccType);
     }
 
-    // Filter out inner ring (donut)
     if (hasDonut && lastInnerRing) {
       allResults = allResults.filter(item => !pointInPolygon(item.lon, item.lat, lastInnerRing));
     }
 
-    const modeLabel  = usedFallback ? t('approxCircle') : `${t('roadNetwork')} · ${transportLabel(selectedTransport)}`;
-    const minLabel   = hasDonut ? `${t('from')} ${formatTravelTime(minMin)} ` : '';
+    const modeLabel = usedFallback ? t('approxCircle') : `${t('roadNetwork')} · ${(t('transportLabel') || {})[selectedTransport] || selectedTransport}`;
+    const minLabel  = hasDonut ? `${t('from')} ${formatTravelTime(minMin)} ` : '';
     document.getElementById('radius-info').textContent =
       `${minLabel}${t('to')} ${formatTravelTime(maxMin)} · ${modeLabel}`;
     document.getElementById('results-header').classList.remove('hidden');
 
-    // Show fav btn if there are favorites
-    syncFavBtn();
-
-    // Share btn always visible after search
-    document.getElementById('share-btn').classList.remove('hidden');
-
+    setScreen('results');
     renderList();
     saveToHash();
 
@@ -812,7 +1076,7 @@ function extractRingCoords(geojson) {
 }
 
 function coordsToOverpassPoly(ring, minutes) {
-  const maxPoints = minutes > 480 ? 50 : minutes > 180 ? 60 : 80;
+  const maxPoints = minutes > 90 ? 60 : 80;
   const step = Math.max(1, Math.floor(ring.length / maxPoints));
   return ring.filter((_, i) => i % step === 0)
     .map(([lon, lat]) => `${lat.toFixed(5)} ${lon.toFixed(5)}`).join(' ');
@@ -822,7 +1086,8 @@ function drawSingleIsochrone(ring) {
   isoLayer.clearLayers();
   const latlngs = ring.map(([lon, lat]) => [lat, lon]);
   L.polygon(latlngs, {
-    color: '#2563eb', fillColor: '#2563eb', fillOpacity: 0.07, weight: 2.5, dashArray: '7 4',
+    color: 'oklch(0.58 0.14 35)', fillColor: 'oklch(0.58 0.14 35)',
+    fillOpacity: 0.12, weight: 1.5,
   }).addTo(isoLayer);
   addUserMarker();
   try { map.fitBounds(L.latLngBounds(latlngs), { padding: [30, 30] }); } catch {}
@@ -833,9 +1098,10 @@ function drawDonut(outerRing, innerRing) {
   const outer = outerRing.map(([lon, lat]) => [lat, lon]);
   const inner = innerRing.map(([lon, lat]) => [lat, lon]);
   L.polygon([outer, inner], {
-    color: '#2563eb', fillColor: '#2563eb', fillOpacity: 0.07, weight: 2.5, dashArray: '7 4',
+    color: 'oklch(0.58 0.14 35)', fillColor: 'oklch(0.58 0.14 35)',
+    fillOpacity: 0.12, weight: 1.5,
   }).addTo(isoLayer);
-  L.polyline(inner, { color: '#2563eb', weight: 2, dashArray: '5 5', opacity: 0.7 }).addTo(isoLayer);
+  L.polyline(inner, { color: 'oklch(0.58 0.14 35)', weight: 1.5, dashArray: '5 5', opacity: 0.8 }).addTo(isoLayer);
   addUserMarker();
   try { map.fitBounds(L.latLngBounds(outer), { padding: [30, 30] }); } catch {}
 }
@@ -843,19 +1109,21 @@ function drawDonut(outerRing, innerRing) {
 function drawCircleFallback(loc, radiusM) {
   isoLayer.clearLayers();
   L.circle([loc.lat, loc.lon], {
-    radius: radiusM, color: '#2563eb', fillColor: '#2563eb',
-    fillOpacity: 0.07, weight: 2, dashArray: '7 4',
+    radius: radiusM, color: 'oklch(0.58 0.14 35)', fillColor: 'oklch(0.58 0.14 35)',
+    fillOpacity: 0.12, weight: 1.5,
   }).addTo(isoLayer);
   addUserMarker();
 }
 
 function addUserMarker() {
-  L.circleMarker([userLocation.lat, userLocation.lon], {
-    radius: 9, color: '#fff', fillColor: '#2563eb', fillOpacity: 1, weight: 3,
-  }).bindPopup(`<b>${t('myLocation')}</b>`).addTo(isoLayer);
+  const originHtml = '<span class="pin-origin"></span>';
+  L.marker([userLocation.lat, userLocation.lon], {
+    icon: L.divIcon({ html: originHtml, className: '', iconSize: [16, 16], iconAnchor: [8, 8] }),
+    zIndexOffset: 2000,
+  }).bindPopup(`<b>${escHtml(t('myLocation'))}</b>`).addTo(isoLayer);
 }
 
-// ── Point in polygon (ray casting) ────────────────────────
+// ── Point in polygon ───────────────────────────────────────
 function pointInPolygon(lon, lat, ring) {
   let inside = false;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
@@ -870,13 +1138,12 @@ function pointInPolygon(lon, lat, ring) {
 async function fetchActivityPlaces(cat, polyStr, loc, radiusM, isLarge) {
   const catInfo = CATEGORY_MAP[cat];
   const filter  = buildFilter(polyStr, loc, radiusM);
-  const timeout = isLarge ? 120 : 30;
+  const timeout = isLarge ? 90 : 30;
   const lines   = catInfo.queries.map(q => `  ${q}${filter};`).join('\n');
   const query   = `[out:json][timeout:${timeout}];\n(\n${lines}\n);\nout center tags;`;
-
-  const res  = await fetch(OVERPASS, { method: 'POST', body: query });
+  const res     = await fetch(OVERPASS, { method: 'POST', body: query });
   if (!res.ok) throw new Error(`Overpass ${res.status}`);
-  const data = await res.json();
+  const data    = await res.json();
   return (data.elements || []).map(el => ({ ...el, _cat: cat }));
 }
 
@@ -884,13 +1151,12 @@ async function fetchActivityPlaces(cat, polyStr, loc, radiusM, isLarge) {
 async function fetchOvernightPlaces(accType, polyStr, loc, radiusM, isLarge) {
   const typeInfo = ACC_TYPE_MAP[accType];
   const filter   = buildFilter(polyStr, loc, radiusM);
-  const timeout  = isLarge ? 120 : 60;
+  const timeout  = isLarge ? 90 : 60;
   const lines    = typeInfo.osmQueries.map(q => `  ${q}${filter};`).join('\n');
   const query    = `[out:json][timeout:${timeout}];\n(\n${lines}\n);\nout center tags;`;
-
-  const res  = await fetch(OVERPASS, { method: 'POST', body: query });
+  const res      = await fetch(OVERPASS, { method: 'POST', body: query });
   if (!res.ok) throw new Error(`Overpass ${res.status}`);
-  const data = await res.json();
+  const data     = await res.json();
   return data.elements || [];
 }
 
@@ -909,9 +1175,9 @@ function processActivityResults(elements, loc) {
     const key = `${lat.toFixed(4)},${lon.toFixed(4)}`;
     if (seen.has(key)) return null;
     seen.add(key);
-    const tags    = el.tags || {};
-    const cat     = el._cat;
-    const catInfo = CATEGORY_MAP[cat];
+    const tags     = el.tags || {};
+    const cat      = el._cat;
+    const catInfo  = CATEGORY_MAP[cat];
     const catLabel = (t('catLabels') || {})[cat] || cat;
     return {
       id: el.id, type: el.type, cat,
@@ -919,9 +1185,7 @@ function processActivityResults(elements, loc) {
       name: tags.name || tags['name:nl'] || `(${catLabel})`,
       lat, lon,
       dist:     haversineKm(loc.lat, loc.lon, lat, lon),
-      tags,
-      openStat: getOpenStatus(tags),
-      rating:   parseRating(tags),
+      tags, openStat: getOpenStatus(tags), rating: parseRating(tags),
     };
   }).filter(Boolean);
 }
@@ -931,7 +1195,6 @@ function processOvernightResults(elements, loc, accType) {
   const typeInfo  = ACC_TYPE_MAP[accType];
   const accLabel  = (t('accLabels') || {})[accType] || accType;
   const seen      = new Set();
-
   return elements.map(el => {
     const lat = el.lat ?? el.center?.lat;
     const lon = el.lon ?? el.center?.lon;
@@ -940,19 +1203,20 @@ function processOvernightResults(elements, loc, accType) {
     if (seen.has(key)) return null;
     seen.add(key);
     const tags      = el.tags || {};
-    const name      = tags.name || tags['name:nl'] || `(${accLabel})`;
-    const stars     = parseFloat(tags.stars) || null;
-    const capacity  = parseInt(tags.capacity) || parseInt(tags['capacity:persons']) || null;
-    const amenLabels = t('amenityLabels') || {};
+    const amenLbls  = t('amenityLabels') || {};
     const amenIcons = typeInfo.amenityIcons
       .filter(a => a.checkFn(tags))
-      .map(a => ({ icon: a.icon, label: amenLabels[a.labelKey] || a.labelKey }));
+      .map(a => ({ icon: a.icon, label: amenLbls[a.labelKey] || a.labelKey }));
     return {
       id: el.id, type: el.type, cat: accType,
       catInfo: { label: accLabel, icon: typeInfo.icon, color: typeInfo.color },
-      name, lat, lon,
+      name: tags.name || tags['name:nl'] || `(${accLabel})`,
+      lat, lon,
       dist:     haversineKm(loc.lat, loc.lon, lat, lon),
-      tags, stars, capacity, amenIcons,
+      tags,
+      stars:    parseFloat(tags.stars) || null,
+      capacity: parseInt(tags.capacity) || parseInt(tags['capacity:persons']) || null,
+      amenIcons,
       openStat: getOpenStatus(tags),
       rating:   parseRating(tags),
       accType,
@@ -973,7 +1237,6 @@ function renderList() {
   } else {
     items = applyOvernightFilters(allResults);
   }
-
   if (showFavOnly) items = items.filter(i => favorites.has(String(i.id)));
 
   if (currentSort === 'distance')    items.sort((a, b) => a.dist - b.dist);
@@ -981,30 +1244,41 @@ function renderList() {
   else if (currentSort === 'stars')  items.sort((a, b) => (b.stars ?? -1) - (a.stars ?? -1));
   else                               items.sort((a, b) => a.name.localeCompare(b.name, lang));
 
-  const count = items.length;
+  const count   = items.length;
   const locWord = count === 1 ? t('locations') : t('locationsPlural');
-  document.getElementById('results-count').textContent = `${count} ${locWord}`;
+  document.getElementById('results-count').textContent = count;
 
   if (!count) {
-    list.innerHTML = `<li style="text-align:center;color:var(--text-muted);padding:24px;font-size:13px;">${t('noResults')}</li>`;
+    list.innerHTML = `<li class="empty-state">
+      <h3 class="empty-title">${escHtml(t('noResults'))}</h3>
+      <p class="empty-body">${escHtml(t('noResultsSub'))}</p>
+    </li>`;
     return;
   }
 
   const cap = 100;
   items.slice(0, cap).forEach((item, idx) => {
-    const marker = L.marker([item.lat, item.lon], { icon: makeIcon(item.catInfo.color) })
+    const isSelected = item.id == selectedItemId;
+    const pin = makePin(item, idx, isSelected);
+    const marker = L.marker([item.lat, item.lon], { icon: pin, zIndexOffset: isSelected ? 1000 : 0 })
       .bindPopup(makePopupHtml(item)).addTo(markersLayer);
-    marker.on('click', () => highlightItem(item.id));
 
-    const li         = document.createElement('li');
-    li.className     = 'result-item';
-    li.dataset.id    = item.id;
-    li.style.cssText = `--item-color:${item.catInfo.color};animation-delay:${Math.min(idx * 12, 240)}ms`;
-    li.innerHTML     = currentMode === 'overnight'
-      ? buildOvernightCardHTML(item)
-      : buildActivityCardHTML(item);
+    marker.on('click', () => {
+      selectedItemId = item.id;
+      highlightItem(item.id);
+      showDetailModal(item);
+    });
+
+    const li = document.createElement('li');
+    li.className = `result-item card ${currentMode === 'overnight' ? 'stay' : 'day'}${isSelected ? ' selected' : ''}`;
+    li.dataset.id = item.id;
+
+    li.innerHTML = currentMode === 'overnight'
+      ? buildOvernightCardHTML(item, idx, isSelected)
+      : buildActivityCardHTML(item, idx, isSelected);
 
     li.addEventListener('click', () => {
+      selectedItemId = item.id;
       map.setView([item.lat, item.lon], 15);
       marker.openPopup();
       highlightItem(item.id);
@@ -1015,84 +1289,234 @@ function renderList() {
 
   if (items.length > cap) {
     const note = document.createElement('li');
-    note.style.cssText = 'text-align:center;color:var(--text-muted);font-size:11px;padding:8px;';
+    note.style.cssText = 'text-align:center;color:var(--ink-3);font-size:11px;padding:16px;font-family:var(--mono);';
     note.textContent   = t('moreResults').replace('{n}', items.length - cap);
     list.appendChild(note);
   }
 }
 
-function buildActivityCardHTML(item) {
-  const isFav = favorites.has(String(item.id));
+function buildActivityCardHTML(item, idx, isSelected) {
+  const isFav  = favorites.has(String(item.id));
+  const numEl  = isSelected ? `<span class="card-num">${idx + 1}</span>` : '';
+  const openEl = item.openStat === 'open'
+    ? `<span class="card-chip moss">${t('openStatus')}</span>`
+    : item.openStat === 'closed'
+      ? `<span class="card-chip subtle">${t('closedStatus')}</span>`
+      : '';
   return `
-    <div class="result-top">
-      <span class="result-dot" style="background:${item.catInfo.color}"></span>
-      <span class="result-name">${escHtml(item.name)}</span>
-      <button class="fav-btn${isFav ? ' active' : ''}" data-id="${item.id}" title="Favoriet">♥</button>
+    <div class="card-photo">
+      <span class="ph-label">FOTO</span>
+      <button class="card-fav" aria-pressed="${isFav}" data-id="${item.id}">${svgGlyph('favoriet', 14)}</button>
+      ${numEl}
     </div>
-    <div class="result-meta">
-      <span class="result-type" style="border-color:${item.catInfo.color}40;color:${item.catInfo.color};background:${hexAlpha(item.catInfo.color,.08)}">${item.catInfo.icon} ${item.catInfo.label}</span>
-      <span class="result-dist">📍 ${formatDist(item.dist)}</span>
-      ${openBadge(item.openStat)}
-      ${item.rating ? `<span class="result-rating">⭐ ${item.rating}</span>` : ''}
+    <div class="card-body">
+      <h3 class="card-name">${escHtml(item.name)}</h3>
+      <div class="card-data">${formatDist(item.dist)} · ${escHtml(item.catInfo.label)}</div>
+      <div class="card-tags">
+        ${openEl}
+        ${item.rating ? `<span class="card-chip">${item.rating} ★</span>` : ''}
+      </div>
     </div>`;
 }
 
-function buildOvernightCardHTML(item) {
-  const starsHtml = item.stars
-    ? `<span class="result-stars">${'⭐'.repeat(Math.min(item.stars, 5))}</span>` : '';
-  const amenHtml  = item.amenIcons.length
-    ? `<div class="result-amenities">${item.amenIcons.map(a => `<span title="${escHtml(a.label)}">${a.icon}</span>`).join('')}</div>` : '';
-  const isFav = favorites.has(String(item.id));
+function buildOvernightCardHTML(item, idx, isSelected) {
+  const isFav  = favorites.has(String(item.id));
+  const numEl  = isSelected ? `<span class="card-num">${idx + 1}</span>` : '';
+  const amenEl = item.amenIcons.slice(0, 4).map(a =>
+    `<span class="card-chip" title="${escHtml(a.label)}">${a.icon}</span>`).join('');
   return `
-    <div class="result-top">
-      <span class="result-dot" style="background:${item.catInfo.color}"></span>
-      <span class="result-name">${escHtml(item.name)}</span>
-      <button class="fav-btn${isFav ? ' active' : ''}" data-id="${item.id}" title="Favoriet">♥</button>
+    <div class="stay-photo">
+      <span class="ph-label">FOTO</span>
+      <button class="card-fav" aria-pressed="${isFav}" data-id="${item.id}">${svgGlyph('favoriet', 14)}</button>
+      ${numEl}
     </div>
-    <div class="result-meta">
-      <span class="result-type" style="border-color:${item.catInfo.color}40;color:${item.catInfo.color};background:${hexAlpha(item.catInfo.color,.08)}">${item.catInfo.icon} ${item.catInfo.label}</span>
-      <span class="result-dist">📍 ${formatDist(item.dist)}</span>
-      ${starsHtml}
-      ${item.capacity ? `<span class="result-dist">👥 ${item.capacity}</span>` : ''}
-    </div>
-    ${amenHtml}`;
+    <div class="card-body">
+      <h3 class="card-name">${escHtml(item.name)}</h3>
+      <div class="card-data">${formatDist(item.dist)}${item.stars ? ` · ${item.stars}★` : ''}${item.capacity ? ` · ${item.capacity} pers.` : ''}</div>
+      <div class="card-tags">${amenEl}</div>
+    </div>`;
 }
 
-// Fav button clicks (delegated)
-document.addEventListener('click', e => {
-  const btn = e.target.closest('.fav-btn');
-  if (!btn) return;
-  e.stopPropagation();
-  const id = String(btn.dataset.id);
-  if (favorites.has(id)) { favorites.delete(id); showToast(t('favRemoved')); }
-  else { favorites.add(id); showToast(t('favAdded')); }
-  saveFavorites();
-  btn.classList.toggle('active', favorites.has(id));
-  syncFavBtn();
-});
+// ── Pin variants ───────────────────────────────────────────
+function makePin(item, idx, isSelected) {
+  const glyphKey = CAT_GLYPH[item.cat] || ACC_GLYPH[item.cat] || '';
+  const glyph    = svgGlyph(glyphKey, 16);
+  let html, w, h;
+  if (isSelected) {
+    html = `<span class="pin-selected">${idx + 1}</span>`;
+    w = h = 36;
+  } else {
+    html = `<span class="pin-typed">${glyph}</span>`;
+    w = h = 30;
+  }
+  return L.divIcon({ html, className: '', iconSize: [w, h], iconAnchor: [w / 2, h / 2] });
+}
+
+// ── Overnight filters ──────────────────────────────────────
+function applyOvernightFilters(items) {
+  return items.filter(item => {
+    for (const id of activeAccFilters) {
+      const def = ACC_TYPE_MAP[selectedAccType].filters.find(f => f.id === id);
+      if (def && !def.checkFn(item.tags)) return false;
+    }
+    if (minStars > 0 && (!item.stars || item.stars < minStars)) return false;
+    if (minPersons > 0 && (item.capacity || 0) < minPersons) return false;
+    return true;
+  });
+}
+
+// ── Category chips (post-search) ───────────────────────────
+function syncCatButtons() {
+  document.querySelectorAll('.cat-btn').forEach(btn => {
+    const active = selectedCats.has(btn.dataset.cat);
+    btn.classList.toggle('active', active);
+    btn.classList.toggle('on', active);
+  });
+}
+
+function syncCatChips() {
+  const bar     = document.getElementById('cat-filter-bar');
+  const section = document.getElementById('cat-filter-section');
+  const cats    = [...selectedCats];
+  if (cats.length <= 1 || currentMode !== 'activity') { section.classList.add('hidden'); return; }
+  section.classList.remove('hidden');
+  const counts = {};
+  allResults.forEach(r => { counts[r.cat] = (counts[r.cat] || 0) + 1; });
+  bar.innerHTML = cats.map(cat => {
+    const label  = (t('catLabels') || {})[cat] || cat;
+    const active = visibleCats.has(cat);
+    const gKey   = CAT_GLYPH[cat];
+    return `<button class="cat-filter${active ? ' on' : ''}" data-cat="${cat}">
+      ${gKey ? `<span class="chip-glyph">${svgGlyph(gKey, 12)}</span>` : ''}
+      ${escHtml(label)} · ${counts[cat] || 0}
+    </button>`;
+  }).join('');
+}
+
+// ── Highlight ──────────────────────────────────────────────
+function highlightItem(id) {
+  document.querySelectorAll('.result-item').forEach(el =>
+    el.classList.toggle('selected', el.dataset.id == id));
+  const el = document.querySelector(`.result-item[data-id="${id}"]`);
+  if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+// ── Surprise me ────────────────────────────────────────────
+function surpriseMe() {
+  let pool = currentMode === 'activity'
+    ? allResults.filter(i => visibleCats.has(i.cat) && (!openNow || i.openStat === 'open'))
+    : applyOvernightFilters(allResults);
+  if (showFavOnly) pool = pool.filter(i => favorites.has(String(i.id)));
+  if (!pool.length) { showToast(t('noSurprise')); return; }
+  const item = pool[Math.floor(Math.random() * pool.length)];
+  selectedItemId = item.id;
+  map.setView([item.lat, item.lon], 15);
+  highlightItem(item.id);
+  showDetailModal(item);
+}
+
+// ── Detail modal ───────────────────────────────────────────
+function showDetailModal(item) {
+  const tags    = item.tags;
+  const osmUrl  = `https://www.openstreetmap.org/${item.type}/${item.id}`;
+  const website = tags.website || tags['contact:website'];
+  const phone   = tags.phone   || tags['contact:phone'];
+  const address = buildAddress(tags);
+  const hours   = tags.opening_hours;
+  const isFav   = favorites.has(String(item.id));
+  const isStay  = currentMode === 'overnight';
+  const glyphKey = isStay ? (ACC_GLYPH[item.accType] || '') : (CAT_GLYPH[item.cat] || '');
+
+  const dataParts = [
+    formatDist(item.dist),
+    item.rating ? `★ ${item.rating}` : null,
+    item.stars  ? `${item.stars} ★` : null,
+    item.capacity ? `${item.capacity} pers.` : null,
+  ].filter(Boolean);
+
+  const gmaps = `https://www.google.com/maps/dir/?api=1&destination=${item.lat},${item.lon}`;
+  const amaps = `https://maps.apple.com/?daddr=${item.lat},${item.lon}`;
+
+  const actionBtn = isStay
+    ? buildBookingLinksSimple(item)
+    : `<a class="btn-primary" href="${gmaps}" target="_blank" rel="noopener noreferrer">🗺️ ${t('route')}</a>`;
+
+  let html = `
+    <div class="modal-photo${isStay ? ' wide' : ''}">
+      <span class="ph-label">FOTO · ${isStay ? '16:9' : '1:1'}</span>
+    </div>
+    <div class="modal-body-inner">
+      ${glyphKey ? `<div class="modal-glyph">${svgGlyph(glyphKey, 20)}</div>` : ''}
+      <h2 class="modal-name">${escHtml(item.name)}</h2>
+      <div class="modal-data">${dataParts.join(' · ')}</div>
+      ${address ? `<div class="modal-addr">📍 ${escHtml(address)}</div>` : ''}
+      ${hours   ? `<div class="modal-addr">🕐 ${escHtml(hours)}</div>` : ''}
+      ${phone   ? `<div class="modal-addr">📞 <a href="tel:${escHtml(phone)}">${escHtml(phone)}</a></div>` : ''}
+      ${website ? `<div class="modal-addr">🌐 <a href="${escHtml(website)}" target="_blank" rel="noopener noreferrer">${escHtml(website)}</a></div>` : ''}
+      ${item.amenIcons?.length ? `<div class="modal-tags">${item.amenIcons.map(a => `<span class="card-chip">${a.icon} ${escHtml(a.label)}</span>`).join('')}</div>` : ''}
+      <div class="modal-actions">
+        ${actionBtn}
+        ${!isStay ? `<a class="btn-secondary" href="${amaps}" target="_blank" rel="noopener noreferrer">🍎 Apple Maps</a>` : ''}
+        <button class="btn-secondary modal-fav-btn${isFav ? ' active' : ''}" data-id="${item.id}">
+          ${svgGlyph('favoriet', 14)} ${isFav ? t('favRemoved') : t('bewaren')}
+        </button>
+      </div>
+      <div style="margin-top:var(--s3)">
+        <a href="${osmUrl}" target="_blank" rel="noopener noreferrer" style="color:var(--ink-3);font-family:var(--mono);font-size:10px;letter-spacing:.04em">${t('viewOnOSM')}</a>
+      </div>
+    </div>`;
+
+  document.getElementById('modal-body').innerHTML = html;
+  document.getElementById('detail-modal').classList.remove('hidden');
+
+  document.querySelector('.modal-fav-btn')?.addEventListener('click', function () {
+    const id = String(this.dataset.id);
+    if (favorites.has(id)) { favorites.delete(id); }
+    else { favorites.add(id); }
+    saveFavorites();
+    this.classList.toggle('active', favorites.has(id));
+    this.innerHTML = `${svgGlyph('favoriet', 14)} ${favorites.has(id) ? t('favRemoved') : t('bewaren')}`;
+    syncFavBtn();
+    const listBtn = document.querySelector(`.card-fav[data-id="${id}"]`);
+    if (listBtn) listBtn.setAttribute('aria-pressed', favorites.has(id));
+  });
+}
+
+function buildBookingLinksSimple(item) {
+  const lat = item.lat.toFixed(5);
+  const lon = item.lon.toFixed(5);
+  if (item.accType === 'vakantiewoning') {
+    return `<a class="btn-primary" href="https://www.airbnb.nl/s/homes?ne_lat=${(item.lat+0.3).toFixed(4)}&ne_lng=${(item.lon+0.4).toFixed(4)}&sw_lat=${(item.lat-0.3).toFixed(4)}&sw_lng=${(item.lon-0.4).toFixed(4)}" target="_blank" rel="noopener noreferrer">🏡 Airbnb</a>`;
+  }
+  if (item.accType === 'camping') {
+    return `<a class="btn-primary" href="https://www.anwb.nl/campings" target="_blank" rel="noopener noreferrer">🏕️ ANWB</a>
+            <a class="btn-secondary" href="https://www.booking.com/searchresults.html?latitude=${lat}&longitude=${lon}" target="_blank" rel="noopener noreferrer">📅 Booking</a>`;
+  }
+  return `<a class="btn-primary" href="https://www.booking.com/searchresults.html?latitude=${lat}&longitude=${lon}" target="_blank" rel="noopener noreferrer">📅 Booking</a>`;
+}
+
+function closeModal() { document.getElementById('detail-modal').classList.add('hidden'); }
 
 // ── Favorites ──────────────────────────────────────────────
 function loadFavorites() {
   try { return new Set(JSON.parse(localStorage.getItem('lz_favorites') || '[]')); }
   catch { return new Set(); }
 }
-
 function saveFavorites() {
   localStorage.setItem('lz_favorites', JSON.stringify([...favorites]));
 }
-
 function syncFavBtn() {
-  const btn = document.getElementById('fav-filter-btn');
-  const hasFavs = allResults.some(r => favorites.has(String(r.id)));
-  btn.classList.toggle('hidden', !hasFavs);
+  const btn    = document.getElementById('fav-filter-btn');
+  const hasFav = allResults.some(r => favorites.has(String(r.id)));
+  btn.classList.toggle('hidden', !hasFav);
 }
 
 // ── Share URL ──────────────────────────────────────────────
 function saveToHash() {
   if (!userLocation) return;
   const params = new URLSearchParams({
-    lat:  userLocation.lat.toFixed(5),
-    lon:  userLocation.lon.toFixed(5),
+    lat: userLocation.lat.toFixed(5),
+    lon: userLocation.lon.toFixed(5),
     mode: currentMode,
     transport: selectedTransport,
     tmin: document.getElementById('time-min').value,
@@ -1110,29 +1534,35 @@ function restoreFromHash() {
     const p = new URLSearchParams(location.hash.slice(1));
     if (p.get('lat') && p.get('lon')) {
       userLocation = { lat: parseFloat(p.get('lat')), lon: parseFloat(p.get('lon')) };
-      document.getElementById('location-input').value = `${userLocation.lat.toFixed(4)}, ${userLocation.lon.toFixed(4)}`;
+      document.getElementById('location-input').value =
+        `${userLocation.lat.toFixed(4)}, ${userLocation.lon.toFixed(4)}`;
       map.setView([userLocation.lat, userLocation.lon], 11);
     }
     if (p.get('lang') && ['nl','en'].includes(p.get('lang'))) {
       lang = p.get('lang');
       document.getElementById('lang-select').value = lang;
-      applyTranslations();
     }
     if (p.get('mode')) switchMode(p.get('mode'));
     if (p.get('transport')) {
       selectedTransport = p.get('transport');
-      document.querySelectorAll('.transport-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === selectedTransport));
+      document.querySelectorAll('.transport-btn').forEach(b => {
+        const on = b.dataset.mode === selectedTransport;
+        b.classList.toggle('active', on); b.classList.toggle('on', on);
+      });
     }
     if (p.get('tmin')) document.getElementById('time-min').value = p.get('tmin');
     if (p.get('tmax')) document.getElementById('time-max').value = p.get('tmax');
-    updateRangeDisplay(); updateRangeFill();
+    updateRangeDisplay(); updateRangeFill(); renderDonutPreview();
     if (p.get('cats')) {
       selectedCats = new Set(p.get('cats').split(',').filter(c => CATEGORY_MAP[c]));
       syncCatButtons();
     }
     if (p.get('acc') && ACC_TYPE_MAP[p.get('acc')]) {
       selectedAccType = p.get('acc');
-      document.querySelectorAll('.acc-type-btn').forEach(b => b.classList.toggle('active', b.dataset.type === selectedAccType));
+      document.querySelectorAll('.acc-type-btn').forEach(b => {
+        const on = b.dataset.type === selectedAccType;
+        b.classList.toggle('active', on); b.classList.toggle('on', on);
+      });
       renderAccFilters();
     }
   } catch(e) { console.warn('Hash restore failed', e); }
@@ -1153,168 +1583,6 @@ async function shareUrl() {
   } catch { showToast(t('linkFailed')); }
 }
 
-// ── Overnight filters ──────────────────────────────────────
-function applyOvernightFilters(items) {
-  return items.filter(item => {
-    for (const id of activeAccFilters) {
-      const def = ACC_TYPE_MAP[selectedAccType].filters.find(f => f.id === id);
-      if (def && !def.checkFn(item.tags)) return false;
-    }
-    if (minStars > 0 && (!item.stars || item.stars < minStars)) return false;
-    if (minPersons > 0 && (item.capacity || 0) < minPersons) return false;
-    return true;
-  });
-}
-
-// ── Category chips ─────────────────────────────────────────
-function syncCatButtons() {
-  document.querySelectorAll('.cat-btn').forEach(btn => {
-    const cat    = btn.dataset.cat;
-    const ci     = CATEGORY_MAP[cat];
-    const active = selectedCats.has(cat);
-    btn.classList.toggle('active', active);
-    if (active) {
-      btn.style.borderColor = ci.color;
-      btn.style.color       = ci.color;
-      btn.style.background  = hexAlpha(ci.color, 0.1);
-    } else {
-      btn.style.borderColor = btn.style.color = btn.style.background = '';
-    }
-  });
-}
-
-function syncCatChips() {
-  const bar     = document.getElementById('cat-filter-bar');
-  const section = document.getElementById('cat-filter-section');
-  const cats    = [...selectedCats];
-  if (cats.length <= 1 || currentMode !== 'activity') { section.classList.add('hidden'); return; }
-  section.classList.remove('hidden');
-  const counts = {};
-  allResults.forEach(r => { counts[r.cat] = (counts[r.cat] || 0) + 1; });
-  bar.innerHTML = cats.map(cat => {
-    const ci     = CATEGORY_MAP[cat];
-    const label  = (t('catLabels') || {})[cat] || cat;
-    const active = visibleCats.has(cat);
-    return `<button class="cat-chip ${active ? 'active' : ''}" data-cat="${cat}" style="--chip-color:${ci.color}">
-      ${ci.icon} ${label}<span class="chip-count">${counts[cat] || 0}</span>
-    </button>`;
-  }).join('');
-}
-
-// ── Highlight ──────────────────────────────────────────────
-function highlightItem(id) {
-  document.querySelectorAll('.result-item').forEach(el =>
-    el.classList.toggle('highlighted', el.dataset.id == id));
-  const el = document.querySelector(`.result-item[data-id="${id}"]`);
-  if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-}
-
-// ── Surprise me ────────────────────────────────────────────
-function surpriseMe() {
-  let pool = currentMode === 'activity'
-    ? allResults.filter(i => visibleCats.has(i.cat) && (!openNow || i.openStat === 'open'))
-    : applyOvernightFilters(allResults);
-  if (showFavOnly) pool = pool.filter(i => favorites.has(String(i.id)));
-  if (!pool.length) { showToast(t('noSurprise')); return; }
-  const item = pool[Math.floor(Math.random() * pool.length)];
-  map.setView([item.lat, item.lon], 15);
-  highlightItem(item.id);
-  showDetailModal(item);
-}
-
-// ── Detail modal ───────────────────────────────────────────
-function showDetailModal(item) {
-  const tags    = item.tags;
-  const osmUrl  = `https://www.openstreetmap.org/${item.type}/${item.id}`;
-  const website = tags.website || tags['contact:website'];
-  const phone   = tags.phone   || tags['contact:phone'];
-  const address = buildAddress(tags);
-  const hours   = tags.opening_hours;
-  const isFav   = favorites.has(String(item.id));
-
-  let html = `
-    <div class="modal-name">${escHtml(item.name)}</div>
-    <div class="modal-badges">
-      <span class="badge" style="background:${hexAlpha(item.catInfo.color,.12)};color:${item.catInfo.color}">${item.catInfo.icon} ${item.catInfo.label}</span>
-      ${openBadgeFull(item.openStat)}
-      ${item.stars ? `<span class="badge" style="background:#fef9c3;color:#854d0e">${'⭐'.repeat(Math.min(item.stars,5))} ${item.stars} ${t('stars')}</span>` : ''}
-      <button class="modal-fav-btn${isFav ? ' active' : ''}" data-id="${item.id}">♥ ${t('favorites')}</button>
-    </div>
-    <div class="modal-details">
-      <div class="modal-row"><span class="micon">📍</span><span class="mtext">${formatDist(item.dist)} ${t('fromLocation')}</span></div>
-      ${address ? `<div class="modal-row"><span class="micon">🏠</span><span class="mtext">${escHtml(address)}</span></div>` : ''}
-      ${hours   ? `<div class="modal-row"><span class="micon">🕐</span><span class="mtext">${escHtml(hours)}</span></div>` : ''}
-      ${phone   ? `<div class="modal-row"><span class="micon">📞</span><span class="mtext"><a href="tel:${escHtml(phone)}">${escHtml(phone)}</a></span></div>` : ''}
-      ${website ? `<div class="modal-row"><span class="micon">🌐</span><span class="mtext"><a href="${escHtml(website)}" target="_blank" rel="noopener noreferrer">${escHtml(website)}</a></span></div>` : ''}
-      ${item.rating   ? `<div class="modal-row"><span class="micon">⭐</span><span class="mtext">${t('rating')}: ${item.rating}</span></div>` : ''}
-      ${item.capacity ? `<div class="modal-row"><span class="micon">👥</span><span class="mtext">${t('capacity')}: ${item.capacity} ${t('persons')}</span></div>` : ''}
-    </div>`;
-
-  if (currentMode === 'overnight' && item.amenIcons?.length) {
-    html += `<div class="modal-amenity-grid">
-      ${item.amenIcons.map(a => `<span class="modal-amenity-pill">${a.icon} ${a.label}</span>`).join('')}
-    </div>`;
-  }
-
-  if (currentMode === 'overnight') {
-    html += buildBookingLinks(item);
-  } else {
-    const gmaps = `https://www.google.com/maps/dir/?api=1&destination=${item.lat},${item.lon}`;
-    const amaps = `https://maps.apple.com/?daddr=${item.lat},${item.lon}`;
-    html += `<div class="modal-nav-btns">
-      <a class="nav-btn nav-gmaps" href="${gmaps}" target="_blank" rel="noopener noreferrer">🗺️ Google Maps</a>
-      <a class="nav-btn nav-amaps" href="${amaps}" target="_blank" rel="noopener noreferrer">🍎 Apple Maps</a>
-    </div>`;
-  }
-
-  html += `<div class="osm-link"><a href="${osmUrl}" target="_blank" rel="noopener noreferrer">${t('viewOnOSM')}</a></div>`;
-
-  document.getElementById('modal-body').innerHTML = html;
-  document.getElementById('detail-modal').classList.remove('hidden');
-
-  // Modal fav button
-  document.querySelector('.modal-fav-btn')?.addEventListener('click', function() {
-    const id = String(this.dataset.id);
-    if (favorites.has(id)) { favorites.delete(id); showToast(t('favRemoved')); }
-    else { favorites.add(id); showToast(t('favAdded')); }
-    saveFavorites();
-    this.classList.toggle('active', favorites.has(id));
-    syncFavBtn();
-    // Also update list card
-    const listBtn = document.querySelector(`.fav-btn[data-id="${id}"]`);
-    if (listBtn) listBtn.classList.toggle('active', favorites.has(id));
-  });
-}
-
-function buildBookingLinks(item) {
-  const lat  = item.lat.toFixed(5);
-  const lon  = item.lon.toFixed(5);
-  const gmapsSearch = term =>
-    `https://www.google.com/maps/search/${encodeURIComponent(term)}/@${lat},${lon},13z`;
-
-  let buttons = '';
-  if (item.accType === 'camping') {
-    buttons = `
-      <a class="book-btn book-booking" href="https://www.booking.com/searchresults.html?latitude=${lat}&longitude=${lon}" target="_blank" rel="noopener noreferrer">📅 Booking.com</a>
-      <a class="book-btn book-anwb"    href="https://www.anwb.nl/campings" target="_blank" rel="noopener noreferrer">🏕️ ANWB Camping</a>
-      <a class="book-btn book-gmaps"   href="${gmapsSearch('camping')}" target="_blank" rel="noopener noreferrer">🗺️ Google Maps</a>`;
-  } else if (item.accType === 'hotel') {
-    buttons = `
-      <a class="book-btn book-booking" href="https://www.booking.com/searchresults.html?latitude=${lat}&longitude=${lon}" target="_blank" rel="noopener noreferrer">📅 Booking.com</a>
-      <a class="book-btn book-gmaps"   href="${gmapsSearch('hotel')}" target="_blank" rel="noopener noreferrer">🗺️ Hotels omgeving</a>`;
-  } else {
-    buttons = `
-      <a class="book-btn book-airbnb"  href="https://www.airbnb.nl/s/homes?ne_lat=${(item.lat+0.3).toFixed(4)}&ne_lng=${(item.lon+0.4).toFixed(4)}&sw_lat=${(item.lat-0.3).toFixed(4)}&sw_lng=${(item.lon-0.4).toFixed(4)}" target="_blank" rel="noopener noreferrer">🏡 Airbnb</a>
-      <a class="book-btn book-booking" href="https://www.booking.com/searchresults.html?latitude=${lat}&longitude=${lon}" target="_blank" rel="noopener noreferrer">📅 Booking.com</a>`;
-  }
-  return `<div class="modal-booking-section">
-    <div class="modal-booking-label">${t('searchBookNearby')}</div>
-    <div class="book-btns">${buttons}</div>
-  </div>`;
-}
-
-function closeModal() { document.getElementById('detail-modal').classList.add('hidden'); }
-
 // ── Helpers ────────────────────────────────────────────────
 function haversineKm(lat1, lon1, lat2, lon2) {
   const R = 6371, dLat = toRad(lat2-lat1), dLon = toRad(lon2-lon1);
@@ -1325,7 +1593,6 @@ function haversineKm(lat1, lon1, lat2, lon2) {
 const toRad           = d  => d * Math.PI / 180;
 const formatDist      = km => km < 1 ? `${Math.round(km*1000)} m` : `${km.toFixed(1)} km`;
 const minutesToMeters = (min, mode) => Math.ceil((SPEEDS[mode] * min / 60) * 1000);
-const transportLabel  = mode => ({ driving: 'auto', cycling: 'fiets', walking: 'lopen' })[mode] ?? mode;
 
 function formatTravelTime(minutes) {
   if (minutes === 0) return `0 ${t('min')}`;
@@ -1334,11 +1601,6 @@ function formatTravelTime(minutes) {
   const m = minutes % 60;
   if (m === 0) return `${h} ${t('hour')}`;
   return `${h}u ${m}m`;
-}
-
-function hexAlpha(hex, alpha) {
-  const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
-  return `rgba(${r},${g},${b},${alpha})`;
 }
 
 function getOpenStatus(tags) {
@@ -1389,33 +1651,14 @@ function buildAddress(tags) {
   return [street, tags['addr:city'] || tags['addr:town']].filter(Boolean).join(', ');
 }
 
-function openBadge(status) {
-  if (status === 'open')   return `<span class="result-open open">● ${t('openStatus')}</span>`;
-  if (status === 'closed') return `<span class="result-open closed">● ${t('closedStatus')}</span>`;
-  return '';
-}
-
-function openBadgeFull(status) {
-  if (status === 'open')   return `<span class="badge" style="background:#dcfce7;color:#15803d">● ${t('openStatus')}</span>`;
-  if (status === 'closed') return `<span class="badge" style="background:#fee2e2;color:#b91c1c">● ${t('closedStatus')}</span>`;
-  return `<span class="badge" style="background:#f1f5f9;color:#64748b">${t('unknownHours')}</span>`;
-}
-
 function makePopupHtml(item) {
+  const gKey = CAT_GLYPH[item.cat] || ACC_GLYPH[item.cat];
   return `
     <div class="popup-name">${escHtml(item.name)}</div>
-    <div style="color:${item.catInfo.color};font-size:12px">${item.catInfo.icon} ${item.catInfo.label}</div>
-    <div style="font-size:11px;color:#64748b;margin-top:3px">📍 ${formatDist(item.dist)}</div>
-    ${item.stars ? `<div style="font-size:12px">${'⭐'.repeat(Math.min(item.stars,5))}</div>` : ''}
-    ${item.openStat !== 'unknown' ? `<div style="font-size:11px;font-weight:700;margin-top:2px;color:${item.openStat==='open'?'#15803d':'#b91c1c'}">● ${item.openStat==='open'?t('openStatus'):t('closedStatus')}</div>` : ''}`;
-}
-
-function makeIcon(color) {
-  return L.divIcon({
-    className: '',
-    html: `<div style="width:26px;height:26px;border-radius:50% 50% 50% 0;background:${color};border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35);transform:rotate(-45deg)"></div>`,
-    iconSize: [26,26], iconAnchor: [13,26], popupAnchor: [0,-28],
-  });
+    <div style="color:var(--ink-3);font-family:var(--mono);font-size:11px;margin-top:2px">
+      ${gKey ? svgGlyph(gKey, 12) : ''} ${escHtml(item.catInfo.label)} · ${formatDist(item.dist)}
+    </div>
+    ${item.openStat !== 'unknown' ? `<div style="font-family:var(--mono);font-size:11px;font-weight:500;margin-top:4px;color:${item.openStat==='open'?'var(--moss)':'#b91c1c'}">● ${item.openStat==='open'?t('openStatus'):t('closedStatus')}</div>` : ''}`;
 }
 
 function escHtml(s) {
@@ -1424,10 +1667,10 @@ function escHtml(s) {
 
 function setSearching(on) {
   const btn = document.getElementById('search-btn');
-  btn.classList.toggle('loading', on);
+  btn.disabled = on;
   btn.innerHTML = on
-    ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="animation:spin 1s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> ${t('searching')}`
-    : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg> <span data-i18n="search">${t('search')}</span>`;
+    ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" style="animation:spin 1s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> <span>${t('searching')}</span>`
+    : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg> <span data-i18n="search">${t('search')}</span>`;
 }
 
 function showToast(msg) {
