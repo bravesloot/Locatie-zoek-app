@@ -740,3 +740,60 @@ input, select { font: inherit; color: inherit; }
   .seg-btn, .mode-tab { padding: 7px 13px; font-size: 12px; }
   #results-count, .res-count-num { font-size: 36px; }
 }
+<<<<<<< HEAD
+=======
+
+/* ╔══════════════════════════════════════════════════════════════════╗
+   ║  MODAL BODY CONTENT                                              ║
+   ╚══════════════════════════════════════════════════════════════════╝ */
+#modal-body { overflow-y: auto; flex: 1; }
+.modal-photo {
+  aspect-ratio: 1;
+  background-image: repeating-linear-gradient(135deg, var(--paper-2) 0 8px, var(--rule) 8px 9px);
+  border-bottom: 1px solid var(--rule);
+  position: relative; flex-shrink: 0;
+  min-height: 160px;
+  display: flex; align-items: flex-end; justify-content: flex-start;
+  padding: var(--s3);
+}
+.modal-photo.wide { aspect-ratio: 16/9; }
+.modal-body-inner {
+  padding: var(--s5);
+  display: flex; flex-direction: column; gap: var(--s4);
+}
+.modal-glyph { color: var(--ink-3); display: flex; }
+.modal-name {
+  font-family: var(--serif); font-size: 36px;
+  line-height: 1.05; margin: 0;
+  color: var(--ink); letter-spacing: -0.02em;
+}
+.modal-data { font-family: var(--mono); font-size: 12px; color: var(--ink-3); }
+.modal-addr { font-size: 13px; color: var(--ink-2); line-height: 1.5; }
+.modal-addr a { color: var(--ink-2); }
+.modal-desc { font-size: 14px; color: var(--ink-2); line-height: 1.6; margin: 0; }
+.modal-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.modal-actions {
+  display: flex; gap: var(--s3); flex-wrap: wrap; padding-top: var(--s3);
+  border-top: 1px solid var(--rule);
+}
+.modal-actions .btn-primary  { flex: 1; text-decoration: none; }
+.modal-actions .btn-secondary { flex: 1; text-decoration: none; }
+.modal-fav-btn.active { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+
+/* ╔══════════════════════════════════════════════════════════════════╗
+   ║  FILTER SUB-SECTIONS                                             ║
+   ╚══════════════════════════════════════════════════════════════════╝ */
+.filter-sub { display: flex; flex-direction: column; gap: var(--s3); }
+.filter-sub.hidden { display: none !important; }
+
+/* Popup */
+.popup-name { font-family: var(--serif); font-size: 16px; color: var(--ink); margin-bottom: 4px; }
+
+/* Spin animation for loading state */
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ╔══════════════════════════════════════════════════════════════════╗
+   ║  VIEW-LIST mode: make sidebar center on desktop                  ║
+   ╚══════════════════════════════════════════════════════════════════╝ */
+#app[data-view="list"] #map { filter: blur(2px) saturate(0.4); pointer-events: none; }
+>>>>>>> 07e29452117d200afde660ae45c3576bdca9460a
