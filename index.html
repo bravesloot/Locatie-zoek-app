@@ -1,136 +1,326 @@
-<!DOCTYPE html>
-<html lang="nl">
+<!doctype html>
+<!--
+  Bereik — drop-in index.html replacement.
+  IDs and classes preserved from the original Locatie-zoek-app so the existing
+  app.js continues to bind to the same elements. New layout, new chrome,
+  but the API surface for the JS is intact.
+
+  What's new:
+    - `#view-toggle` (Kaart ↔ Lijst), `#sheet` (mobile bottom sheet),
+      `#starting-points` (home empty state), `#mode-toggle` segmented control.
+  What's preserved (verbatim):
+    - All IDs: #location-input, #autocomplete-list, #gps-btn, #time-min,
+      #time-max, #range-display, #range-fill, #search-btn, #map,
+      #map-legend, #category-grid, #acc-type-row, #star-btns,
+      #persons-btns, #acc-amenity-chips, #open-now-filter, #sort-select,
+      #results-list, #results-count, #results-header, #cat-filter-bar,
+      #detail-modal, #modal-body, #modal-close, #toast, #lang-select,
+      #dark-toggle, #share-btn, #surprise-btn, #fav-filter-btn,
+      #cat-filter-section, #radius-info, #sidebar, #sidebar-top,
+      #sidebar-bottom.
+    - Classes: .mode-tab, .transport-btn, .cat-btn, .acc-type-btn,
+      .filter-opt-btn.
+    - data-i18n / data-i18n-ph attributes on every translated string.
+-->
+<html lang="nl" data-theme="light">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Locatie Zoeker</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Bereik — locatieplanner</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="tokens.css" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div id="app">
-    <!-- Sidebar -->
+
+  <div id="app" data-screen="home">
+
+    <!-- ════════════════════════════════════════════════════════════════
+         TOP BAR — wordmark + utility controls
+         (replaces the old #header-bar in the sidebar)
+    ════════════════════════════════════════════════════════════════ -->
+    <header id="topbar">
+      <div class="topbar-left">
+        <button id="back-btn" class="iconbtn hidden" aria-label="Terug">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+        </button>
+        <a id="logo" href="#" class="wordmark" aria-label="Bereik">
+          bere<span class="i">i</span>k<span class="stop">.</span>
+        </a>
+      </div>
+      <div class="topbar-right">
+        <!-- View toggle: only visible on the results screen -->
+        <div id="view-toggle" class="segmented hidden">
+          <button class="seg-btn on" data-view="map">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M12 21s-7-6.2-7-12a7 7 0 1 1 14 0c0 5.8-7 12-7 12z"/><circle cx="12" cy="9" r="2.5"/></svg>
+            <span data-i18n="viewMap">Kaart</span>
+          </button>
+          <button class="seg-btn" data-view="list">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+            <span data-i18n="viewList">Lijst</span>
+          </button>
+        </div>
+        <button id="fav-filter-btn" class="iconbtn hidden" title="Favorieten" data-i18n-title="favorites">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M19 21V5a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v16l7-4z"/></svg>
+        </button>
+        <button id="surprise-btn" class="iconbtn hidden" title="Verras me" data-i18n-title="surpriseMe">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><rect x="4" y="4" width="16" height="16" rx="2"/><circle cx="9" cy="9" r="1" fill="currentColor"/><circle cx="15" cy="9" r="1" fill="currentColor"/><circle cx="9" cy="15" r="1" fill="currentColor"/><circle cx="15" cy="15" r="1" fill="currentColor"/></svg>
+        </button>
+        <button id="share-btn" class="iconbtn hidden" title="Deel link" data-i18n-title="shareLink">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M16 6l-4-4-4 4M12 2v13"/></svg>
+        </button>
+        <select id="lang-select" title="Language / Taal" aria-label="Language">
+          <option value="nl">NL</option>
+          <option value="en">EN</option>
+        </select>
+        <button id="dark-toggle" class="iconbtn" title="Dark mode">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- ════════════════════════════════════════════════════════════════
+         MAP — fills the canvas. Same #map id as before.
+    ════════════════════════════════════════════════════════════════ -->
+    <main id="map">
+      <div id="map-legend" class="hidden">
+        <div class="legend-item"><span class="legend-outer"></span> <span data-i18n="legendOuter">Max bereikbaar</span></div>
+        <div class="legend-item"><span class="legend-inner"></span> <span data-i18n="legendInner">Min. afstand</span></div>
+      </div>
+    </main>
+
+    <!-- ════════════════════════════════════════════════════════════════
+         SIDEBAR (desktop) ↔ BOTTOM SHEET (mobile)
+         Same #sidebar/#sidebar-top/#sidebar-bottom structure as before;
+         CSS turns it into a draggable sheet at < 1024px.
+    ════════════════════════════════════════════════════════════════ -->
     <aside id="sidebar">
-      <div id="sidebar-header">
-        <h1>Locatie Zoeker</h1>
-        <p class="subtitle">Wat wil je doen in de buurt?</p>
-      </div>
+      <div id="sheet-grab" aria-hidden="true"><span class="grab-bar"></span></div>
 
-      <!-- Locatie -->
-      <section class="control-section">
-        <label class="section-label">Mijn locatie</label>
-        <div class="location-row">
-          <div class="autocomplete-wrapper">
-            <input
-              id="location-input"
-              type="text"
-              placeholder="Typ een adres of stad..."
-              autocomplete="off"
-            />
-            <ul id="autocomplete-list" class="autocomplete-list hidden"></ul>
+      <div id="sidebar-top">
+
+        <!-- ── Mode tabs (renamed: 'Activiteit' → 'Vandaag uit') ─── -->
+        <div id="mode-tabs" class="segmented">
+          <button class="mode-tab seg-btn on" data-mode="activity">
+            <span data-i18n="modeDayOut">Vandaag uit</span>
+          </button>
+          <button class="mode-tab seg-btn" data-mode="overnight">
+            <span data-i18n="modeStays">Overnachten</span>
+          </button>
+        </div>
+
+        <!-- ── Locatie ─────────────────────────────────────────── -->
+        <section class="control-section">
+          <label class="section-label" data-i18n="myLocation">Mijn locatie</label>
+          <div class="location-row">
+            <div class="autocomplete-wrapper">
+              <input id="location-input" type="text"
+                data-i18n-ph="locationPh"
+                placeholder="Typ een adres of stad…"
+                autocomplete="off" />
+              <ul id="autocomplete-list" class="autocomplete-list hidden"></ul>
+            </div>
+            <button id="gps-btn" title="GPS" aria-label="GPS">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+                <circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>
+              </svg>
+            </button>
           </div>
-          <button id="gps-btn" title="Gebruik GPS-locatie">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="3"/>
-              <path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>
-              <circle cx="12" cy="12" r="9" stroke-dasharray="4 2"/>
-            </svg>
-          </button>
+        </section>
+
+        <!-- ── Reistijd (dual range slider + donut preview) ─────── -->
+        <section class="control-section">
+          <div class="tc-head">
+            <span class="tc-question" data-i18n="howFar">Hoe ver wil je gaan?</span>
+            <span id="range-display" class="tc-vals">Van 0 min tot 30 min</span>
+          </div>
+          <div class="tc-row">
+            <div class="tc-track-wrap dual-range-container" id="dual-range-container">
+              <div id="range-track" class="range-track tc-track">
+                <div id="range-fill" class="range-fill tc-fill"></div>
+              </div>
+              <!-- the existing JS reads/writes these two inputs -->
+              <input id="time-min" type="range" min="0" max="120" step="5" value="0" />
+              <input id="time-max" type="range" min="0" max="120" step="5" value="30" />
+              <div id="range-ticks" class="range-ticks tc-ticks">
+                <span>0</span><span>30</span><span>60</span><span>90</span><span>120</span>
+              </div>
+            </div>
+            <div id="tc-preview" class="tc-preview" aria-hidden="true">
+              <!-- generated by app.js: an SVG donut whose inner-radius
+                   tracks min/max ratio. See handoff doc §3.4. -->
+            </div>
+          </div>
+        </section>
+
+        <!-- ── Vervoer ────────────────────────────────────────── -->
+        <section class="control-section">
+          <label class="section-label" data-i18n="transport">Vervoersmiddel</label>
+          <div class="transport-row">
+            <button class="transport-btn tx-btn on" data-mode="driving">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M5 17h14M7 17v-5l2-5h6l2 5v5"/><circle cx="8" cy="17" r="1.5"/><circle cx="16" cy="17" r="1.5"/></svg>
+              <span data-i18n="car">Auto</span>
+            </button>
+            <button class="transport-btn tx-btn" data-mode="cycling">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/><path d="m9 17 4-8h3M9 6h3l1 3"/></svg>
+              <span data-i18n="bike">Fiets</span>
+            </button>
+            <button class="transport-btn tx-btn" data-mode="walking">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="13" cy="4" r="1.5"/><path d="m11 21 2-7-3-2 1-4-3 3-2-1M14 21l-1-6 3-2"/></svg>
+              <span data-i18n="walk">Lopen</span>
+            </button>
+          </div>
+        </section>
+
+        <!-- ── Activiteiten (Day-out track) ─────────────────────
+             Each .cat-btn now uses a category-glyph SVG (see handoff §3.3)
+             rendered into ::before via CSS via data-cat-glyph,
+             OR injected by app.js. data-i18n key stays the same.
+        ─── -->
+        <section id="section-activity" class="control-section">
+          <label class="section-label">
+            <span data-i18n="whatSearch">Wat zoek je?</span>
+            <span class="label-hint" data-i18n="multiplePossible">meerdere mogelijk</span>
+          </label>
+          <div id="category-grid" class="chip-row">
+            <button class="cat-btn chiplabel on" data-cat="cafe">       <span class="chip-glyph" data-glyph="koffie"></span>     <span data-i18n="cat.cafe">Koffie</span></button>
+            <button class="cat-btn chiplabel"    data-cat="restaurant"> <span class="chip-glyph" data-glyph="restaurant"></span> <span data-i18n="cat.restaurant">Restaurant</span></button>
+            <button class="cat-btn chiplabel"    data-cat="bar">        <span class="chip-glyph" data-glyph="bar"></span>        <span data-i18n="cat.bar">Bar</span></button>
+            <button class="cat-btn chiplabel"    data-cat="museum">     <span class="chip-glyph" data-glyph="museum"></span>     <span data-i18n="cat.museum">Museum</span></button>
+            <button class="cat-btn chiplabel"    data-cat="park">       <span class="chip-glyph" data-glyph="park"></span>       <span data-i18n="cat.park">Park</span></button>
+            <button class="cat-btn chiplabel"    data-cat="hiking">     <span class="chip-glyph" data-glyph="wandelen"></span>   <span data-i18n="cat.hiking">Wandelen</span></button>
+            <button class="cat-btn chiplabel"    data-cat="supermarket"><span class="chip-glyph" data-glyph="supermarkt"></span> <span data-i18n="cat.supermarket">Supermarkt</span></button>
+            <button class="cat-btn chiplabel"    data-cat="library">    <span class="chip-glyph" data-glyph="bibliotheek"></span><span data-i18n="cat.library">Bibliotheek</span></button>
+            <button class="cat-btn chiplabel"    data-cat="cinema">     <span class="chip-glyph" data-glyph="bioscoop"></span>   <span data-i18n="cat.cinema">Bioscoop</span></button>
+            <button class="cat-btn chiplabel"    data-cat="bakery">     <span class="chip-glyph" data-glyph="bakkerij"></span>   <span data-i18n="cat.bakery">Bakkerij</span></button>
+            <button class="cat-btn chiplabel"    data-cat="fast_food">  <span class="chip-glyph" data-glyph="fastfood"></span>   <span data-i18n="cat.fast_food">Fastfood</span></button>
+            <button class="cat-btn chiplabel"    data-cat="playground"> <span class="chip-glyph" data-glyph="speeltuin"></span>  <span data-i18n="cat.playground">Speeltuin</span></button>
+          </div>
+        </section>
+
+        <!-- ── Overnachten (Stays track) ───────────────────────── -->
+        <section id="section-overnight" class="control-section hidden">
+          <label class="section-label" data-i18n="accType">Type verblijf</label>
+          <div id="acc-type-row" class="chip-row">
+            <button class="acc-type-btn chiplabel on" data-type="camping">       <span class="chip-glyph" data-glyph="camping"></span>     <span data-i18n="acc.camping">Camping</span></button>
+            <button class="acc-type-btn chiplabel"    data-type="hotel">         <span class="chip-glyph" data-glyph="hotel"></span>       <span data-i18n="acc.hotel">Hotel / B&amp;B</span></button>
+            <button class="acc-type-btn chiplabel"    data-type="vakantiewoning"><span class="chip-glyph" data-glyph="vakantiehuis"></span><span data-i18n="acc.house">Vakantiehuis</span></button>
+          </div>
+
+          <div id="star-filter-section" class="filter-sub hidden">
+            <label class="section-label sub" data-i18n="minStars">Minimaal sterren</label>
+            <div class="chip-row" id="star-btns">
+              <button class="filter-opt-btn chiplabel on" data-value="0" data-i18n="allOption">Alle</button>
+              <button class="filter-opt-btn chiplabel" data-value="2">2+</button>
+              <button class="filter-opt-btn chiplabel" data-value="3">3+</button>
+              <button class="filter-opt-btn chiplabel" data-value="4">4+</button>
+            </div>
+          </div>
+
+          <div id="persons-filter-section" class="filter-sub">
+            <label class="section-label sub" data-i18n="minPersons">Minimaal personen</label>
+            <div class="chip-row" id="persons-btns">
+              <button class="filter-opt-btn chiplabel on" data-value="0" data-i18n="allOption">Alle</button>
+              <button class="filter-opt-btn chiplabel" data-value="2">2+</button>
+              <button class="filter-opt-btn chiplabel" data-value="4">4+</button>
+              <button class="filter-opt-btn chiplabel" data-value="6">6+</button>
+              <button class="filter-opt-btn chiplabel" data-value="8">8+</button>
+            </div>
+          </div>
+
+          <div id="acc-amenity-section" class="filter-sub">
+            <label class="section-label sub">
+              <span data-i18n="amenities">Voorzieningen</span>
+              <span class="label-hint" data-i18n="multiplePossible">meerdere mogelijk</span>
+            </label>
+            <div id="acc-amenity-chips" class="chip-row chip-grid"></div>
+          </div>
+        </section>
+
+        <!-- ── Open now + sort ─────────────────────────────────── -->
+        <section class="control-section">
+          <div class="filters-row">
+            <label class="switch-row toggle-label" id="open-now-wrapper" for="open-now-filter">
+              <input type="checkbox" id="open-now-filter" class="visually-hidden" />
+              <span class="switch toggle-track"><span class="toggle-thumb"></span></span>
+              <span class="switch-label" data-i18n="openNow">Nu geopend</span>
+            </label>
+            <div class="sort-wrapper sort-wrap">
+              <label for="sort-select" data-i18n="sortBy">Sorteren</label>
+              <select id="sort-select">
+                <option value="distance" data-i18n="sortDist">Afstand</option>
+                <option value="time"     data-i18n="sortTime">Reistijd</option>
+                <option value="rating"   data-i18n="sortRating">Beoordeling</option>
+                <option value="name"     data-i18n="sortName">Naam</option>
+              </select>
+            </div>
+          </div>
+        </section>
+
+        <!-- ── Starting points (home empty state) ─────────────────
+             app.js fills #starting-points with rows based on the
+             current mode. Selecting a row prefills the form & runs search.
+        ─── -->
+        <section id="starting-points" class="control-section sp-list">
+          <div class="sp-head">
+            <span class="sp-label" data-i18n="startingPoints">Veelgebruikte zoekopdrachten</span>
+          </div>
+          <!-- rows injected by app.js, e.g.:
+            <button class="sp-row" data-preset="restaurant-terras-fiets-20">
+              <span class="sp-text">
+                <span class="sp-title">Restaurant met terras</span>
+                <span class="sp-sub">— binnen 20 min fietsen</span>
+              </span>
+              <span class="sp-cta">→</span>
+            </button>
+          -->
+        </section>
+
+        <!-- ── Results header (post-search) ────────────────────── -->
+        <div id="results-header" class="res-head hidden">
+          <div class="res-top results-top">
+            <div class="res-count-block">
+              <span id="results-count" class="res-count-num"></span>
+              <span class="res-count-label" data-i18n="resultsLabel">plekken binnen bereik</span>
+            </div>
+            <span id="radius-info" class="res-meta"></span>
+          </div>
+          <div id="cat-filter-section" class="hidden">
+            <div id="cat-filter-bar" class="res-cat-bar"></div>
+          </div>
         </div>
-      </section>
 
-      <!-- Reistijd -->
-      <section class="control-section">
-        <label class="section-label">
-          Reistijd: <strong id="time-display">15 min</strong>
-        </label>
-        <input id="time-slider" type="range" min="5" max="60" step="5" value="15" />
-        <div class="slider-ticks">
-          <span>5</span><span>15</span><span>30</span><span>45</span><span>60</span>
-        </div>
-      </section>
+        <!-- ── Results list (cards) ────────────────────────────── -->
+        <ul id="results-list" class="result-list"></ul>
 
-      <!-- Vervoersmiddel -->
-      <section class="control-section">
-        <label class="section-label">Vervoersmiddel</label>
-        <div class="transport-row">
-          <button class="transport-btn active" data-mode="driving">
-            <span class="icon">🚗</span> Auto
-          </button>
-          <button class="transport-btn" data-mode="cycling">
-            <span class="icon">🚲</span> Fiets
-          </button>
-          <button class="transport-btn" data-mode="walking">
-            <span class="icon">🚶</span> Lopen
-          </button>
-        </div>
-      </section>
+      </div><!-- /sidebar-top -->
 
-      <!-- Categorie -->
-      <section class="control-section">
-        <label class="section-label">Wat zoek je?</label>
-        <div id="category-grid">
-          <button class="cat-btn active" data-cat="cafe">☕ Koffie</button>
-          <button class="cat-btn" data-cat="restaurant">🍽️ Restaurant</button>
-          <button class="cat-btn" data-cat="bar">🍺 Bar / Café</button>
-          <button class="cat-btn" data-cat="museum">🏛️ Museum</button>
-          <button class="cat-btn" data-cat="park">🌳 Park</button>
-          <button class="cat-btn" data-cat="hiking">🥾 Wandelen</button>
-          <button class="cat-btn" data-cat="supermarket">🛒 Supermarkt</button>
-          <button class="cat-btn" data-cat="library">📚 Bibliotheek</button>
-          <button class="cat-btn" data-cat="cinema">🎬 Bioscoop</button>
-          <button class="cat-btn" data-cat="bakery">🥐 Bakkerij</button>
-          <button class="cat-btn" data-cat="fast_food">🍔 Fastfood</button>
-          <button class="cat-btn" data-cat="playground">🛝 Speeltuin</button>
-        </div>
-      </section>
-
-      <!-- Filters -->
-      <section class="control-section filters-row">
-        <label class="toggle-label">
-          <input type="checkbox" id="open-now-filter" />
-          <span class="toggle-track"><span class="toggle-thumb"></span></span>
-          Nu geopend
-        </label>
-        <div class="sort-wrapper">
-          <label for="sort-select">Sorteren:</label>
-          <select id="sort-select">
-            <option value="distance">Afstand</option>
-            <option value="rating">Beoordeling</option>
-            <option value="name">Naam</option>
-          </select>
-        </div>
-      </section>
-
-      <!-- Zoekknop -->
-      <button id="search-btn">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <circle cx="11" cy="11" r="8"/>
-          <path d="m21 21-4.35-4.35"/>
-        </svg>
-        Zoeken
-      </button>
-
-      <!-- Resultaten -->
-      <div id="results-header" class="hidden">
-        <span id="results-count"></span>
-        <span id="radius-info"></span>
+      <!-- ── Sticky search button (mobile sheet) ──────────────── -->
+      <div id="sidebar-bottom">
+        <button id="search-btn" class="btn-primary full">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <span data-i18n="search">Zoeken</span>
+        </button>
       </div>
-      <ul id="results-list"></ul>
+
     </aside>
 
-    <!-- Kaart -->
-    <main id="map"></main>
   </div>
 
-  <!-- Detail popup -->
-  <div id="detail-modal" class="modal hidden">
-    <div class="modal-content">
-      <button id="modal-close">&times;</button>
+  <!-- ── Detail modal ──────────────────────────────────────── -->
+  <div id="detail-modal" class="modal-scrim modal hidden">
+    <div id="modal-sheet" class="modal-sheet modal-content">
+      <button id="modal-close" class="modal-close" aria-label="Sluiten">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
       <div id="modal-body"></div>
     </div>
   </div>
 
+  <!-- ── Toast ─────────────────────────────────────────────── -->
   <div id="toast" class="toast hidden"></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
