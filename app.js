@@ -50,6 +50,15 @@ const VALHALLA = 'https://valhalla1.openstreetmap.de/isochrone';
 const OVERPASS = 'https://overpass-api.de/api/interpreter';
 const COSTING  = { driving: 'auto', cycling: 'bicycle', walking: 'pedestrian' };
 const SPEEDS   = { driving: 40, cycling: 15, walking: 5 };
+// Leaflet's colour parser doesn't understand oklch(); hex twin of --accent
+const ISO_COLOR = '#b55a3b';
+
+const SLIDER_CONFIG = {
+  activity:  { max: 120, step: 5,  defaultMax: 30,
+               ticks: ['0', '30', '60', '90', '120'] },
+  overnight: { max: 480, step: 15, defaultMax: 120,
+               ticks: ['0', '2u', '4u', '6u', '8u'] },
+};
 
 // ── i18n ───────────────────────────────────────────────────
 const TRANSLATIONS = {
@@ -93,6 +102,7 @@ const TRANSLATIONS = {
     noResults: 'Niets binnen bereik.',
     noResultsSub: 'Probeer een ruimere reistijd, een ander vervoersmiddel, of laat de filters wat los.',
     moreResults: '+ {n} meer — verklein de reistijd voor betere resultaten',
+    largeAreaWarn: 'Groot zoekgebied — toont de {cap} dichtstbijzijnde. Gebruik filters om te verfijnen.',
     gpsFound: 'GPS-locatie gevonden!',
     gpsUnavail: 'GPS niet beschikbaar.',
     gpsFailed: 'GPS mislukt. Typ een adres in.',
@@ -186,6 +196,7 @@ const TRANSLATIONS = {
     noResults: 'Nothing within reach.',
     noResultsSub: 'Try a wider travel time, different transport, or ease the filters.',
     moreResults: '+ {n} more — reduce travel time for better results',
+    largeAreaWarn: 'Large search area — showing the {cap} nearest. Use filters to narrow down.',
     gpsFound: 'GPS location found!',
     gpsUnavail: 'GPS not available.',
     gpsFailed: 'GPS failed. Type an address instead.',
@@ -362,6 +373,7 @@ let favorites         = loadFavorites();
 let showFavOnly       = false;
 let lastInnerRing     = null;
 let selectedItemId    = null;
+let markerMap         = new Map();
 
 // ── SVG glyph helper ──────────────────────────────────────
 function svgGlyph(name, size = 16) {
@@ -386,7 +398,18 @@ function initMap() {
     maxZoom: 19, subdomains: 'abcd', opacity: 0.7,
   }).addTo(map);
   isoLayer     = L.layerGroup().addTo(map);
-  markersLayer = L.layerGroup().addTo(map);
+  markersLayer = (L.markerClusterGroup
+    ? L.markerClusterGroup({
+        iconCreateFunction: cluster => L.divIcon({
+          html: `<span class="pin-cluster">${cluster.getChildCount()}</span>`,
+          className: '', iconSize: [36, 36], iconAnchor: [18, 18],
+        }),
+        maxClusterRadius: 40,
+        spiderfyOnMaxZoom: true,
+        showCoverageOnHover: false,
+      })
+    : L.layerGroup()
+  ).addTo(map);
 }
 
 function updateMapTheme() {
@@ -494,6 +517,19 @@ function renderDonutPreview() {
     </svg>`;
 }
 
+function applySliderConfig(mode) {
+  const cfg   = SLIDER_CONFIG[mode] || SLIDER_CONFIG.activity;
+  const minEl = document.getElementById('time-min');
+  const maxEl = document.getElementById('time-max');
+  minEl.max = cfg.max;  maxEl.max = cfg.max;
+  minEl.step = cfg.step; maxEl.step = cfg.step;
+  minEl.value = 0;
+  maxEl.value = cfg.defaultMax;
+  const ticks = document.getElementById('range-ticks');
+  if (ticks) ticks.innerHTML = cfg.ticks.map(l => `<span>${l}</span>`).join('');
+  updateRangeDisplay(); updateRangeFill(); renderDonutPreview();
+}
+
 function getEffectiveMin() {
   const minV = parseInt(document.getElementById('time-min').value);
   const maxV = parseInt(document.getElementById('time-max').value);
@@ -590,6 +626,8 @@ function setScreen(screen) {
     if (window.innerWidth < 1024) {
       document.getElementById('sidebar').dataset.sheet = 'half';
     }
+  } else {
+    document.getElementById('fav-filter-btn').classList.add('hidden');
   }
 }
 
@@ -658,6 +696,7 @@ function initUI() {
   injectGlyphs();
 
   // Range slider
+  applySliderConfig(currentMode);
   initRangeSlider();
 
   // View toggle
@@ -851,6 +890,8 @@ function switchMode(mode) {
   document.getElementById('section-activity').classList.toggle('hidden', isOvernight);
   document.getElementById('section-overnight').classList.toggle('hidden', !isOvernight);
   document.getElementById('open-now-wrapper').classList.toggle('hidden', isOvernight);
+  openNow = false;
+  document.getElementById('open-now-filter').checked = false;
 
   // Sort options
   const sortSel = document.getElementById('sort-select');
@@ -872,6 +913,8 @@ function switchMode(mode) {
   document.getElementById('cat-filter-section').classList.add('hidden');
   document.getElementById('map-legend').classList.add('hidden');
   if (document.getElementById('app').dataset.screen === 'results') setScreen('home');
+
+  applySliderConfig(mode);
 
   // Update starting points
   renderStartingPoints(mode);
@@ -973,11 +1016,14 @@ async function doSearch() {
     let outerPolyStr  = null;
     let outerRingCoords = null;
     let usedFallback  = false;
-    const isLarge    = maxMin > 90;
-    const generalize = maxMin > 90 ? 150 : 80;
+    const isLarge     = maxMin > 90;
+    const isVeryLarge = maxMin > 240;
+    const generalize  = isVeryLarge ? 300 : isLarge ? 150 : 80;
+    const isoTimeout  = isVeryLarge ? 30000 : isLarge ? 20000 : 14000;
+    const opTimeout   = isVeryLarge ? 120 : isLarge ? 90 : 30;
 
     try {
-      const outerIso = await fetchIsochrone(userLocation, maxMin, selectedTransport, generalize, isLarge ? 20000 : 14000);
+      const outerIso = await fetchIsochrone(userLocation, maxMin, selectedTransport, generalize, isoTimeout);
       outerRingCoords = extractRingCoords(outerIso);
       outerPolyStr   = coordsToOverpassPoly(outerRingCoords, maxMin);
 
@@ -1010,13 +1056,13 @@ async function doSearch() {
     if (currentMode === 'activity') {
       const cats       = [...selectedCats];
       const rawResults = await Promise.all(
-        cats.map(cat => fetchActivityPlaces(cat, outerPolyStr, userLocation, radiusM, isLarge))
+        cats.map(cat => fetchActivityPlaces(cat, outerPolyStr, userLocation, radiusM, opTimeout))
       );
       allResults  = processActivityResults(rawResults.flat(), userLocation);
       visibleCats = new Set(cats);
       syncCatChips();
     } else {
-      const raw  = await fetchOvernightPlaces(selectedAccType, outerPolyStr, userLocation, radiusM, isLarge);
+      const raw  = await fetchOvernightPlaces(selectedAccType, outerPolyStr, userLocation, radiusM, opTimeout);
       allResults = processOvernightResults(raw, userLocation, selectedAccType);
     }
 
@@ -1086,7 +1132,7 @@ function drawSingleIsochrone(ring) {
   isoLayer.clearLayers();
   const latlngs = ring.map(([lon, lat]) => [lat, lon]);
   L.polygon(latlngs, {
-    color: 'oklch(0.58 0.14 35)', fillColor: 'oklch(0.58 0.14 35)',
+    color: ISO_COLOR, fillColor: ISO_COLOR,
     fillOpacity: 0.12, weight: 1.5,
   }).addTo(isoLayer);
   addUserMarker();
@@ -1098,10 +1144,10 @@ function drawDonut(outerRing, innerRing) {
   const outer = outerRing.map(([lon, lat]) => [lat, lon]);
   const inner = innerRing.map(([lon, lat]) => [lat, lon]);
   L.polygon([outer, inner], {
-    color: 'oklch(0.58 0.14 35)', fillColor: 'oklch(0.58 0.14 35)',
+    color: ISO_COLOR, fillColor: ISO_COLOR,
     fillOpacity: 0.12, weight: 1.5,
   }).addTo(isoLayer);
-  L.polyline(inner, { color: 'oklch(0.58 0.14 35)', weight: 1.5, dashArray: '5 5', opacity: 0.8 }).addTo(isoLayer);
+  L.polyline(inner, { color: ISO_COLOR, weight: 1.5, dashArray: '5 5', opacity: 0.8 }).addTo(isoLayer);
   addUserMarker();
   try { map.fitBounds(L.latLngBounds(outer), { padding: [30, 30] }); } catch {}
 }
@@ -1109,7 +1155,7 @@ function drawDonut(outerRing, innerRing) {
 function drawCircleFallback(loc, radiusM) {
   isoLayer.clearLayers();
   L.circle([loc.lat, loc.lon], {
-    radius: radiusM, color: 'oklch(0.58 0.14 35)', fillColor: 'oklch(0.58 0.14 35)',
+    radius: radiusM, color: ISO_COLOR, fillColor: ISO_COLOR,
     fillOpacity: 0.12, weight: 1.5,
   }).addTo(isoLayer);
   addUserMarker();
@@ -1135,10 +1181,10 @@ function pointInPolygon(lon, lat, ring) {
 }
 
 // ── Overpass: activity ─────────────────────────────────────
-async function fetchActivityPlaces(cat, polyStr, loc, radiusM, isLarge) {
+async function fetchActivityPlaces(cat, polyStr, loc, radiusM, opTimeout) {
   const catInfo = CATEGORY_MAP[cat];
   const filter  = buildFilter(polyStr, loc, radiusM);
-  const timeout = isLarge ? 90 : 30;
+  const timeout = opTimeout || 30;
   const lines   = catInfo.queries.map(q => `  ${q}${filter};`).join('\n');
   const query   = `[out:json][timeout:${timeout}];\n(\n${lines}\n);\nout center tags;`;
   const res     = await fetch(OVERPASS, { method: 'POST', body: query });
@@ -1148,10 +1194,10 @@ async function fetchActivityPlaces(cat, polyStr, loc, radiusM, isLarge) {
 }
 
 // ── Overpass: overnight ────────────────────────────────────
-async function fetchOvernightPlaces(accType, polyStr, loc, radiusM, isLarge) {
+async function fetchOvernightPlaces(accType, polyStr, loc, radiusM, opTimeout) {
   const typeInfo = ACC_TYPE_MAP[accType];
   const filter   = buildFilter(polyStr, loc, radiusM);
-  const timeout  = isLarge ? 90 : 60;
+  const timeout  = Math.max(opTimeout || 30, 60);
   const lines    = typeInfo.osmQueries.map(q => `  ${q}${filter};`).join('\n');
   const query    = `[out:json][timeout:${timeout}];\n(\n${lines}\n);\nout center tags;`;
   const res      = await fetch(OVERPASS, { method: 'POST', body: query });
@@ -1179,12 +1225,13 @@ function processActivityResults(elements, loc) {
     const cat      = el._cat;
     const catInfo  = CATEGORY_MAP[cat];
     const catLabel = (t('catLabels') || {})[cat] || cat;
+    const dist     = haversineKm(loc.lat, loc.lon, lat, lon);
     return {
       id: el.id, type: el.type, cat,
       catInfo: { ...catInfo, label: catLabel },
       name: tags.name || tags['name:nl'] || `(${catLabel})`,
-      lat, lon,
-      dist:     haversineKm(loc.lat, loc.lon, lat, lon),
+      lat, lon, dist,
+      travelTime: (dist / SPEEDS[selectedTransport]) * 60,
       tags, openStat: getOpenStatus(tags), rating: parseRating(tags),
     };
   }).filter(Boolean);
@@ -1207,12 +1254,13 @@ function processOvernightResults(elements, loc, accType) {
     const amenIcons = typeInfo.amenityIcons
       .filter(a => a.checkFn(tags))
       .map(a => ({ icon: a.icon, label: amenLbls[a.labelKey] || a.labelKey }));
+    const dist      = haversineKm(loc.lat, loc.lon, lat, lon);
     return {
       id: el.id, type: el.type, cat: accType,
       catInfo: { label: accLabel, icon: typeInfo.icon, color: typeInfo.color },
       name: tags.name || tags['name:nl'] || `(${accLabel})`,
-      lat, lon,
-      dist:     haversineKm(loc.lat, loc.lon, lat, lon),
+      lat, lon, dist,
+      travelTime: (dist / SPEEDS[selectedTransport]) * 60,
       tags,
       stars:    parseFloat(tags.stars) || null,
       capacity: parseInt(tags.capacity) || parseInt(tags['capacity:persons']) || null,
@@ -1224,9 +1272,80 @@ function processOvernightResults(elements, loc, accType) {
   }).filter(Boolean);
 }
 
+// ── Photos (Wikimedia Commons / Wikipedia / direct image tag) ──
+const photoCache = new Map();
+
+function commonsFileFromTags(tags) {
+  const wc = tags.wikimedia_commons;
+  if (wc) {
+    if (/^File:/i.test(wc)) return wc.replace(/^File:/i, '');
+    if (!/^Category:/i.test(wc)) return wc;
+  }
+  const img = tags.image;
+  if (img && /^File:/i.test(img)) return img.replace(/^File:/i, '');
+  return null;
+}
+
+async function fetchWikimediaThumb(tags, widthPx = 400) {
+  const file = commonsFileFromTags(tags);
+  if (file) {
+    try {
+      const api = `https://commons.wikimedia.org/w/api.php?action=query&titles=${encodeURIComponent('File:' + file)}&prop=imageinfo&iiprop=url&iiurlwidth=${widthPx}&format=json&origin=*`;
+      const data = await (await fetch(api)).json();
+      for (const p of Object.values(data?.query?.pages || {})) {
+        const info = p?.imageinfo?.[0];
+        if (info?.thumburl || info?.url) return info.thumburl || info.url;
+      }
+    } catch {}
+  }
+  const img = tags.image;
+  if (img && /^https:\/\//i.test(img)) return img;
+  const wp = tags.wikipedia;
+  if (wp) {
+    try {
+      const m     = wp.match(/^(?:([a-z-]+):)?(.+)$/i);
+      const wlang = m?.[1] || 'en';
+      const api   = `https://${wlang}.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(m?.[2] || wp)}&prop=pageimages&pithumbsize=${widthPx}&format=json&origin=*`;
+      const data  = await (await fetch(api)).json();
+      for (const p of Object.values(data?.query?.pages || {})) {
+        if (p?.thumbnail?.source) return p.thumbnail.source;
+      }
+    } catch {}
+  }
+  return null;
+}
+
+async function getItemPhoto(item, widthPx = 400) {
+  const key = `${item.type}/${item.id}`;
+  if (photoCache.has(key)) return photoCache.get(key);
+  const tags = item.tags || {};
+  if (!tags.wikimedia_commons && !tags.image && !tags.wikipedia) {
+    photoCache.set(key, null);
+    return null;
+  }
+  const url = await fetchWikimediaThumb(tags, widthPx);
+  photoCache.set(key, url);
+  return url;
+}
+
+function hydratePhotos(items) {
+  items.forEach(async item => {
+    const url = await getItemPhoto(item, 400);
+    if (!url) return;
+    item.photoUrl = url;
+    const el = document.querySelector(
+      `.result-item[data-id="${item.id}"] .card-photo, .result-item[data-id="${item.id}"] .stay-photo`);
+    if (el) {
+      el.classList.add('has-photo');
+      el.style.backgroundImage = `url("${url}")`;
+    }
+  });
+}
+
 // ── Render list ────────────────────────────────────────────
 function renderList() {
   markersLayer.clearLayers();
+  markerMap.clear();
   const list = document.getElementById('results-list');
   list.innerHTML = '';
 
@@ -1239,10 +1358,15 @@ function renderList() {
   }
   if (showFavOnly) items = items.filter(i => favorites.has(String(i.id)));
 
-  if (currentSort === 'distance')    items.sort((a, b) => a.dist - b.dist);
-  else if (currentSort === 'rating') items.sort((a, b) => (b.rating ?? -1) - (a.rating ?? -1));
-  else if (currentSort === 'stars')  items.sort((a, b) => (b.stars ?? -1) - (a.stars ?? -1));
-  else                               items.sort((a, b) => a.name.localeCompare(b.name, lang));
+  const sortItems = arr => {
+    if (currentSort === 'distance')    arr.sort((a, b) => a.dist - b.dist);
+    else if (currentSort === 'time')   arr.sort((a, b) => (a.travelTime ?? Infinity) - (b.travelTime ?? Infinity));
+    else if (currentSort === 'rating') arr.sort((a, b) => (b.rating ?? -1) - (a.rating ?? -1));
+    else if (currentSort === 'stars')  arr.sort((a, b) => (b.stars ?? -1) - (a.stars ?? -1));
+    else                               arr.sort((a, b) => a.name.localeCompare(b.name, lang));
+    return arr;
+  };
+  sortItems(items);
 
   const count   = items.length;
   const locWord = count === 1 ? t('locations') : t('locationsPlural');
@@ -1256,12 +1380,23 @@ function renderList() {
     return;
   }
 
-  const cap = 100;
-  items.slice(0, cap).forEach((item, idx) => {
+  const maxMin = getEffectiveMax();
+  const cap    = maxMin > 240 ? 50 : maxMin > 90 ? 75 : 100;
+  let shown = items;
+  if (items.length > cap) {
+    // cap to the nearest places, then restore the user's chosen ordering
+    shown = sortItems([...items].sort((a, b) => a.dist - b.dist).slice(0, cap));
+    const warn = document.createElement('li');
+    warn.className = 'cap-warning';
+    warn.textContent = t('largeAreaWarn').replace('{cap}', cap);
+    list.appendChild(warn);
+  }
+  shown.forEach((item, idx) => {
     const isSelected = item.id == selectedItemId;
     const pin = makePin(item, idx, isSelected);
     const marker = L.marker([item.lat, item.lon], { icon: pin, zIndexOffset: isSelected ? 1000 : 0 })
       .bindPopup(makePopupHtml(item)).addTo(markersLayer);
+    markerMap.set(item.id, marker);
 
     marker.on('click', () => {
       selectedItemId = item.id;
@@ -1280,9 +1415,18 @@ function renderList() {
     li.addEventListener('click', () => {
       selectedItemId = item.id;
       map.setView([item.lat, item.lon], 15);
-      marker.openPopup();
+      if (markersLayer.zoomToShowLayer) markersLayer.zoomToShowLayer(marker, () => marker.openPopup());
+      else marker.openPopup();
       highlightItem(item.id);
       showDetailModal(item);
+    });
+    li.addEventListener('mouseenter', () => {
+      markerMap.get(item.id)?.getElement()
+        ?.querySelector('.pin-typed, .pin-selected')?.classList.add('hover');
+    });
+    li.addEventListener('mouseleave', () => {
+      markerMap.get(item.id)?.getElement()
+        ?.querySelector('.pin-typed, .pin-selected')?.classList.remove('hover');
     });
     list.appendChild(li);
   });
@@ -1293,6 +1437,8 @@ function renderList() {
     note.textContent   = t('moreResults').replace('{n}', items.length - cap);
     list.appendChild(note);
   }
+
+  hydratePhotos(shown);
 }
 
 function buildActivityCardHTML(item, idx, isSelected) {
@@ -1469,6 +1615,16 @@ function showDetailModal(item) {
   document.getElementById('modal-body').innerHTML = html;
   document.getElementById('detail-modal').classList.remove('hidden');
 
+  (async () => {
+    const url = await fetchWikimediaThumb(tags, 800) || item.photoUrl;
+    if (!url) return;
+    const el = document.querySelector('#detail-modal .modal-photo');
+    if (el) {
+      el.classList.add('has-photo');
+      el.style.backgroundImage = `url("${url}")`;
+    }
+  })();
+
   document.querySelector('.modal-fav-btn')?.addEventListener('click', function () {
     const id = String(this.dataset.id);
     if (favorites.has(id)) { favorites.delete(id); }
@@ -1485,14 +1641,26 @@ function showDetailModal(item) {
 function buildBookingLinksSimple(item) {
   const lat = item.lat.toFixed(5);
   const lon = item.lon.toFixed(5);
-  if (item.accType === 'vakantiewoning') {
-    return `<a class="btn-primary" href="https://www.airbnb.nl/s/homes?ne_lat=${(item.lat+0.3).toFixed(4)}&ne_lng=${(item.lon+0.4).toFixed(4)}&sw_lat=${(item.lat-0.3).toFixed(4)}&sw_lng=${(item.lon-0.4).toFixed(4)}" target="_blank" rel="noopener noreferrer">🏡 Airbnb</a>`;
-  }
+  const ext = 'target="_blank" rel="noopener noreferrer"';
+
+  const fmtDate = d => d.toISOString().slice(0, 10);
+  const checkin  = new Date(); checkin.setDate(checkin.getDate() + 1);
+  const checkout = new Date(); checkout.setDate(checkout.getDate() + 2);
+  const bookingUrl = `https://www.booking.com/searchresults.html?ss=${encodeURIComponent(item.name)}&latitude=${lat}&longitude=${lon}&checkin=${fmtDate(checkin)}&checkout=${fmtDate(checkout)}`;
+  const routeBtn = `<a class="btn-secondary" href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}" ${ext}>🗺️ ${t('route')}</a>`;
+
   if (item.accType === 'camping') {
-    return `<a class="btn-primary" href="https://www.anwb.nl/campings" target="_blank" rel="noopener noreferrer">🏕️ ANWB</a>
-            <a class="btn-secondary" href="https://www.booking.com/searchresults.html?latitude=${lat}&longitude=${lon}" target="_blank" rel="noopener noreferrer">📅 Booking</a>`;
+    return `<a class="btn-primary" href="https://opencampingmap.org/#12/${lat}/${lon}" ${ext}>🏕️ OpenCampingMap</a>
+            <a class="btn-secondary" href="https://www.acsi.eu/nl/campings/zoeken/?lat=${lat}&lng=${lon}" ${ext}>⛺ ACSI</a>
+            ${routeBtn}`;
   }
-  return `<a class="btn-primary" href="https://www.booking.com/searchresults.html?latitude=${lat}&longitude=${lon}" target="_blank" rel="noopener noreferrer">📅 Booking</a>`;
+  if (item.accType === 'vakantiewoning') {
+    return `<a class="btn-primary" href="https://www.airbnb.nl/s/homes?ne_lat=${(item.lat+0.1).toFixed(4)}&ne_lng=${(item.lon+0.1).toFixed(4)}&sw_lat=${(item.lat-0.1).toFixed(4)}&sw_lng=${(item.lon-0.1).toFixed(4)}" ${ext}>🏡 Airbnb</a>
+            <a class="btn-secondary" href="https://www.bungalow.net/zoeken?lat=${lat}&lng=${lon}" ${ext}>🏠 Bungalow.net</a>
+            ${routeBtn}`;
+  }
+  return `<a class="btn-primary" href="${bookingUrl}" ${ext}>📅 Booking</a>
+          ${routeBtn}`;
 }
 
 function closeModal() { document.getElementById('detail-modal').classList.add('hidden'); }
@@ -1607,35 +1775,13 @@ function getOpenStatus(tags) {
   const oh = tags.opening_hours;
   if (!oh) return 'unknown';
   if (oh === '24/7') return 'open';
-  try { return evaluateOpeningHours(oh) ? 'open' : 'closed'; }
-  catch { return 'unknown'; }
-}
-
-function evaluateOpeningHours(oh) {
-  const now   = new Date();
-  const DAYS  = ['Su','Mo','Tu','We','Th','Fr','Sa'];
-  const ORDER = { Mo:1,Tu:2,We:3,Th:4,Fr:5,Sa:6,Su:7 };
-  const today = ORDER[DAYS[now.getDay()]];
-  const nowM  = now.getHours()*60 + now.getMinutes();
-  for (const rule of oh.split(';').map(r=>r.trim()).filter(Boolean)) {
-    const m = rule.match(/^([A-Za-z,\- ]+?)\s+(\d{2}:\d{2})-(\d{2}:\d{2})$/);
-    if (!m || !dayMatches(m[1].trim(), today, ORDER)) continue;
-    const s = timeToMin(m[2]), e = timeToMin(m[3]);
-    if (e < s) return nowM >= s || nowM < e;
-    return nowM >= s && nowM < e;
+  try {
+    // opening_hours.js handles the full OSM syntax (PH, seasons, fallbacks)
+    return new opening_hours(oh).getState() ? 'open' : 'closed';
+  } catch {
+    return 'unknown';
   }
-  return false;
 }
-
-function dayMatches(part, today, order) {
-  return part.split(',').map(s=>s.trim()).some(p => {
-    const range = p.match(/^([A-Z][a-z])-([A-Z][a-z])$/);
-    if (range) { const s=order[range[1]],e=order[range[2]]; return s&&e&&today>=s&&today<=e; }
-    return order[p] === today;
-  });
-}
-
-const timeToMin = t => { const [h,m]=t.split(':').map(Number); return h*60+m; };
 
 function parseRating(tags) {
   const r = tags.stars || tags.rating;

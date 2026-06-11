@@ -740,8 +740,6 @@ input, select { font: inherit; color: inherit; }
   .seg-btn, .mode-tab { padding: 7px 13px; font-size: 12px; }
   #results-count, .res-count-num { font-size: 36px; }
 }
-<<<<<<< HEAD
-=======
 
 /* ╔══════════════════════════════════════════════════════════════════╗
    ║  MODAL BODY CONTENT                                              ║
@@ -796,4 +794,44 @@ input, select { font: inherit; color: inherit; }
    ║  VIEW-LIST mode: make sidebar center on desktop                  ║
    ╚══════════════════════════════════════════════════════════════════╝ */
 #app[data-view="list"] #map { filter: blur(2px) saturate(0.4); pointer-events: none; }
->>>>>>> 07e29452117d200afde660ae45c3576bdca9460a
+
+/* ╔══════════════════════════════════════════════════════════════════╗
+   ║  DESKTOP TOPBAR — keep chrome above the sidebar column,          ║
+   ║  not floating over the map                                       ║
+   ╚══════════════════════════════════════════════════════════════════╝ */
+@media (min-width: 1024px) {
+  #topbar {
+    width: 440px;
+    right: auto;
+    background: var(--paper);
+    border-right: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+    box-shadow: none;
+    pointer-events: auto;
+  }
+  /* map + list are both visible on desktop; the toggle only makes sense on mobile */
+  #view-toggle { display: none !important; }
+}
+
+/* ╔══════════════════════════════════════════════════════════════════╗
+   ║  PHOTOS (Wikimedia hydration)                                    ║
+   ╚══════════════════════════════════════════════════════════════════╝ */
+.card-photo.has-photo, .stay-photo.has-photo, .modal-photo.has-photo {
+  background-size: cover;
+  background-position: center;
+}
+.has-photo .ph-label { display: none; }
+.has-photo .card-fav { background: rgba(246,243,236,0.85); }
+
+/* ╔══════════════════════════════════════════════════════════════════╗
+   ║  LARGE-AREA CAP WARNING                                          ║
+   ╚══════════════════════════════════════════════════════════════════╝ */
+.cap-warning {
+  font-family: var(--mono); font-size: 11px;
+  color: var(--ink-2);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  padding: var(--s3) var(--s4);
+  line-height: 1.5;
+  list-style: none;
+}
