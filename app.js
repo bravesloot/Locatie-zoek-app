@@ -826,7 +826,13 @@ function initUI() {
   }
 
   // Search
-  document.getElementById('search-btn').addEventListener('click', doSearch);
+  document.getElementById('search-btn').addEventListener('click', () => {
+    if (currentMode === 'trip') doTripSearch();
+    else doSearch();
+  });
+
+  // Trip UI (eigen slider + filters)
+  initTripUI();
 
   // Surprise
   document.getElementById('surprise-btn').addEventListener('click', surpriseMe);
@@ -904,9 +910,13 @@ function switchMode(mode) {
   });
 
   const isOvernight = mode === 'overnight';
-  document.getElementById('section-activity').classList.toggle('hidden', isOvernight);
+  const isTrip      = mode === 'trip';
+  document.getElementById('section-activity').classList.toggle('hidden', isOvernight || isTrip);
   document.getElementById('section-overnight').classList.toggle('hidden', !isOvernight);
-  document.getElementById('open-now-wrapper').classList.toggle('hidden', isOvernight);
+  document.getElementById('section-trip').classList.toggle('hidden', !isTrip);
+  // Open-now en sort-rij niet relevant voor overnachten/trip
+  document.getElementById('open-now-wrapper').classList.toggle('hidden', isOvernight || isTrip);
+  document.querySelector('.filters-row')?.classList.toggle('hidden', isTrip);
   openNow = false;
   document.getElementById('open-now-filter').checked = false;
 
@@ -2169,6 +2179,516 @@ function showToast(msg) {
   toast.classList.remove('hidden');
   clearTimeout(showToast._t);
   showToast._t = setTimeout(() => toast.classList.add('hidden'), 3000);
+}
+
+// ══════════════════════════════════════════════════════════
+//  TRIP PLANNEN — volledig nieuwe, losstaande tab
+// ══════════════════════════════════════════════════════════
+
+// ── Accommodatie-definities (schone filters, geen 'shop') ──
+const TRIP_ACC = {
+  camping: {
+    icon: '⛺', color: '#16a34a', label: 'Camping',
+    osmQueries: ['node[tourism=camp_site]', 'way[tourism=camp_site]'],
+    filters: [
+      { id: 'tents',      label: '⛺ Tent',      check: tg => tg.tents === 'yes' },
+      { id: 'camper',     label: '🚐 Camper',    check: tg => tg.motorhome === 'yes' },
+      { id: 'caravan',    label: '🚗 Caravan',   check: tg => tg.caravans === 'yes' },
+      { id: 'electric',   label: '🔌 Elektra',   check: tg => tg.electric_hook_up === 'yes' || tg.electricity === 'yes' },
+      { id: 'dogs',       label: '🐕 Honden',    check: tg => tg.dogs === 'yes' },
+      { id: 'pool',       label: '🏊 Zwembad',   check: tg => tg.swimming_pool === 'yes' },
+      { id: 'wifi',       label: '📶 WiFi',      check: tg => ['wlan','yes'].includes(tg.internet_access) },
+      { id: 'shower',     label: '🚿 Douches',   check: tg => tg.shower === 'yes' },
+      { id: 'bbq',        label: '🔥 BBQ',       check: tg => tg.bbq === 'yes' },
+      { id: 'playground', label: '🛝 Speeltuin', check: tg => tg.playground === 'yes' },
+    ],
+  },
+  hotel: {
+    icon: '🏨', color: '#2563eb', label: 'Hotel / B&B', hasStars: true,
+    osmQueries: [
+      'node[tourism=hotel]', 'way[tourism=hotel]',
+      'node[tourism=hostel]', 'way[tourism=hostel]',
+      'node[tourism=guest_house]', 'way[tourism=guest_house]',
+      'node[tourism=motel]', 'way[tourism=motel]',
+    ],
+    filters: [
+      { id: 'dogs',       label: '🐕 Honden',    check: tg => tg.dogs === 'yes' },
+      { id: 'pool',       label: '🏊 Zwembad',   check: tg => tg.swimming_pool === 'yes' },
+      { id: 'parking',    label: '🅿️ Parkeren',  check: tg => ['yes','public','private','free'].includes(tg.parking) },
+      { id: 'wifi',       label: '📶 WiFi',      check: tg => ['wlan','yes'].includes(tg.internet_access) },
+      { id: 'restaurant', label: '🍽️ Restaurant', check: tg => tg.restaurant === 'yes' },
+      { id: 'bar',        label: '🍺 Bar',       check: tg => tg.bar === 'yes' },
+      { id: 'spa',        label: '💆 Spa',       check: tg => tg.spa === 'yes' || tg.sauna === 'yes' },
+    ],
+  },
+  vakantiewoning: {
+    icon: '🏠', color: '#7c3aed', label: 'Vakantiehuis', hasPersons: true,
+    osmQueries: [
+      'node[tourism=apartment]', 'way[tourism=apartment]',
+      'node[tourism=chalet]', 'way[tourism=chalet]',
+      'node[tourism=holiday_village]', 'way[tourism=holiday_village]',
+      'node[tourism=alpine_hut]', 'way[tourism=alpine_hut]',
+    ],
+    filters: [
+      { id: 'dogs',   label: '🐕 Honden',  check: tg => tg.dogs === 'yes' },
+      { id: 'pool',   label: '🏊 Zwembad', check: tg => tg.swimming_pool === 'yes' },
+      { id: 'garden', label: '🌿 Tuin',    check: tg => tg.garden === 'yes' },
+      { id: 'wifi',   label: '📶 WiFi',    check: tg => ['wlan','yes'].includes(tg.internet_access) },
+      { id: 'bbq',    label: '🔥 BBQ',     check: tg => tg.bbq === 'yes' },
+      { id: 'sauna',  label: '🧖 Sauna',   check: tg => tg.sauna === 'yes' },
+    ],
+  },
+};
+
+// Gemiddelde reissnelheden voor radius-schatting (km/h)
+const TRIP_SPEEDS = { driving: 85, train: 110, cycling: 18 };
+
+// ── Trip-state (volledig geïsoleerd) ───────────────────────
+const tripState = {
+  transport:  'driving',
+  minMin:     120,
+  maxMin:     300,
+  accType:    'camping',
+  filters:    new Set(),
+  minPersons: 0,
+  minStars:   0,
+  sort:       'distance',
+};
+
+// ── Helpers ────────────────────────────────────────────────
+function tripKm(mode, minutes) {
+  return Math.round((TRIP_SPEEDS[mode] || 85) * (minutes / 60));
+}
+
+function formatH(minutes) {
+  if (minutes === 0) return '0 min';
+  if (minutes < 60) return `${minutes} min`;
+  const h = Math.floor(minutes / 60), m = minutes % 60;
+  return m === 0 ? `${h}u` : `${h}u${String(m).padStart(2,'0')}`;
+}
+
+// ── Trip UI init ──────────────────────────────────────────
+function initTripUI() {
+  // Transport buttons
+  document.getElementById('trip-transport-row').addEventListener('click', e => {
+    const btn = e.target.closest('.trip-tx-btn');
+    if (!btn) return;
+    document.querySelectorAll('.trip-tx-btn').forEach(b => b.classList.remove('on','active'));
+    btn.classList.add('on','active');
+    tripState.transport = btn.dataset.mode;
+    updateTripSlider();
+  });
+
+  // Dual range slider
+  const tMin = document.getElementById('trip-min');
+  const tMax = document.getElementById('trip-max');
+  const onSlide = () => {
+    let a = parseInt(tMin.value), b = parseInt(tMax.value);
+    if (a >= b) { tMin.value = Math.max(0, b - 30); a = parseInt(tMin.value); }
+    tripState.minMin = a; tripState.maxMin = b;
+    updateTripSlider();
+  };
+  tMin.addEventListener('input', onSlide);
+  tMax.addEventListener('input', onSlide);
+  updateTripSlider();
+
+  // Accommodation type
+  document.getElementById('trip-acc-row').addEventListener('click', e => {
+    const btn = e.target.closest('.trip-acc-btn');
+    if (!btn) return;
+    document.querySelectorAll('.trip-acc-btn').forEach(b => b.classList.remove('on','active'));
+    btn.classList.add('on','active');
+    tripState.accType = btn.dataset.type;
+    tripState.filters.clear(); tripState.minPersons = 0; tripState.minStars = 0;
+    renderTripFilters();
+  });
+
+  // Persons buttons
+  document.getElementById('trip-persons-btns').addEventListener('click', e => {
+    const btn = e.target.closest('.trip-pers-btn');
+    if (!btn) return;
+    document.querySelectorAll('.trip-pers-btn').forEach(b => b.classList.remove('on','active'));
+    btn.classList.add('on','active');
+    tripState.minPersons = parseInt(btn.dataset.value);
+  });
+
+  // Stars buttons
+  document.getElementById('trip-stars-btns').addEventListener('click', e => {
+    const btn = e.target.closest('.trip-star-btn');
+    if (!btn) return;
+    document.querySelectorAll('.trip-star-btn').forEach(b => b.classList.remove('on','active'));
+    btn.classList.add('on','active');
+    tripState.minStars = parseInt(btn.dataset.value);
+  });
+
+  // Filter chips (delegated — chips are created dynamically)
+  document.getElementById('trip-filter-chips').addEventListener('click', e => {
+    const chip = e.target.closest('.trip-chip');
+    if (!chip) return;
+    const id = chip.dataset.id;
+    if (tripState.filters.has(id)) tripState.filters.delete(id);
+    else tripState.filters.add(id);
+    chip.classList.toggle('on', tripState.filters.has(id));
+    chip.classList.toggle('active', tripState.filters.has(id));
+  });
+
+  renderTripFilters();
+}
+
+function updateTripSlider() {
+  const tMin = document.getElementById('trip-min');
+  const tMax = document.getElementById('trip-max');
+  const fill = document.getElementById('trip-range-fill');
+  const minV = parseInt(tMin.value), maxV = parseInt(tMax.value);
+  const leftPct  = (minV / 480) * 100;
+  const rightPct = (maxV / 480) * 100;
+  fill.style.left = `${leftPct}%`;
+  fill.style.width = `${rightPct - leftPct}%`;
+
+  const km1 = tripKm(tripState.transport, minV);
+  const km2 = tripKm(tripState.transport, maxV);
+  document.getElementById('trip-range-display').textContent =
+    `${formatH(minV)}–${formatH(maxV)} · ${km1}–${km2} km`;
+
+  // Donut preview
+  const ratio = maxV > 0 ? Math.min(0.85, minV / maxV) : 0;
+  const innerR = 30 + ratio * 40;
+  document.getElementById('trip-preview').innerHTML = `
+    <svg viewBox="0 0 200 200" fill="none">
+      <path d="M100,18 Q160,28 178,80 Q190,140 140,176 Q80,196 36,160 Q12,118 24,68 Q42,28 100,18 Z"
+        fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"/>
+      ${ratio > 0 ? `<circle cx="100" cy="100" r="${innerR.toFixed(1)}"
+        fill="var(--paper-2)" stroke="var(--accent)" stroke-width="1.2" stroke-dasharray="3 3"/>` : ''}
+      <circle cx="100" cy="100" r="3" fill="var(--ink)"/>
+    </svg>`;
+}
+
+function renderTripFilters() {
+  const typeInfo = TRIP_ACC[tripState.accType];
+  const chips = document.getElementById('trip-filter-chips');
+  chips.innerHTML = typeInfo.filters.map(f => {
+    const on = tripState.filters.has(f.id);
+    return `<button class="amenity-chip chiplabel trip-chip${on ? ' on active' : ''}" data-id="${f.id}">${f.label}</button>`;
+  }).join('');
+
+  document.getElementById('trip-persons-section').classList.toggle(
+    'hidden', !typeInfo.hasPersons);
+  document.getElementById('trip-stars-section').classList.toggle(
+    'hidden', !typeInfo.hasStars);
+}
+
+// ── Overpass fetch voor trip ───────────────────────────────
+async function fetchTripPlaces(accType, loc, maxKm) {
+  const typeInfo  = TRIP_ACC[accType];
+  const timeoutSec = maxKm > 400 ? 75 : maxKm > 200 ? 55 : 40;
+  const usesBbox  = maxKm > 150;
+
+  let queryHeader, elemFilter;
+  if (usesBbox) {
+    // Bounding box at query level — no per-element radius needed
+    const dLat = maxKm / 111;
+    const dLon = maxKm / (111 * Math.cos(loc.lat * Math.PI / 180));
+    const bbox = [
+      (loc.lat - dLat).toFixed(3), (loc.lon - dLon).toFixed(3),
+      (loc.lat + dLat).toFixed(3), (loc.lon + dLon).toFixed(3),
+    ].join(',');
+    queryHeader = `[out:json][timeout:${timeoutSec}][bbox:${bbox}]`;
+    elemFilter  = '';
+  } else {
+    queryHeader = `[out:json][timeout:${timeoutSec}]`;
+    elemFilter  = `(around:${Math.ceil(maxKm * 1000)},${loc.lat},${loc.lon})`;
+  }
+
+  const lines = typeInfo.osmQueries.map(q => `  ${q}${elemFilter};`).join('\n');
+  const query = `${queryHeader};\n(\n${lines}\n);\nout center 400;`;
+  const data = await overpassFetch(query);
+  return data.elements || [];
+}
+
+// ── Verwerk resultaten ─────────────────────────────────────
+function processTripResults(elements, loc, minKm, maxKm) {
+  const typeInfo  = TRIP_ACC[tripState.accType];
+  const seen      = new Set();
+  return elements.map(el => {
+    const lat = el.lat ?? el.center?.lat;
+    const lon = el.lon ?? el.center?.lon;
+    if (!lat || !lon) return null;
+    const key = `${lat.toFixed(3)},${lon.toFixed(3)}`;
+    if (seen.has(key)) return null;
+    seen.add(key);
+    const dist = haversineKm(loc.lat, loc.lon, lat, lon);
+    if (dist < minKm || dist > maxKm) return null;    // buiten donut
+    const tags      = el.tags || {};
+    const amenities = typeInfo.filters
+      .filter(f => f.check(tags))
+      .map(f => ({ label: f.label }));
+    return {
+      id: el.id, type: el.type, lat, lon, dist,
+      name:      tags.name || tags['name:nl'] || `(${typeInfo.label})`,
+      tags,
+      amenities,
+      stars:     parseFloat(tags.stars) || null,
+      capacity:  parseInt(tags.capacity) || parseInt(tags['capacity:persons']) || null,
+      accType:   tripState.accType,
+    };
+  }).filter(Boolean).sort((a, b) => a.dist - b.dist);
+}
+
+function applyTripFilters(items) {
+  return items.filter(item => {
+    const typeInfo = TRIP_ACC[tripState.accType];
+    for (const fid of tripState.filters) {
+      const def = typeInfo.filters.find(f => f.id === fid);
+      if (def && !def.check(item.tags)) return false;
+    }
+    if (tripState.minStars > 0 && (!item.stars || item.stars < tripState.minStars)) return false;
+    if (tripState.minPersons > 0 && (item.capacity || 0) < tripState.minPersons) return false;
+    return true;
+  });
+}
+
+// ── Kaart: eenvoudige donut als cirkel ────────────────────
+function drawTripDonut(loc, minM, maxM) {
+  isoLayer.clearLayers();
+  L.circle([loc.lat, loc.lon], {
+    radius: maxM, color: ISO_COLOR, fillColor: ISO_COLOR, fillOpacity: 0.10, weight: 1.5,
+  }).addTo(isoLayer);
+  if (minM > 0) {
+    L.circle([loc.lat, loc.lon], {
+      radius: minM, color: ISO_COLOR, fill: false, weight: 1.5, dashArray: '5 5', opacity: 0.7,
+    }).addTo(isoLayer);
+  }
+  addUserMarker();
+  try {
+    const b = L.latLngBounds([
+      [loc.lat - maxM/111000, loc.lon - maxM/111000],
+      [loc.lat + maxM/111000, loc.lon + maxM/111000],
+    ]);
+    map.fitBounds(b, { padding: [30, 30] });
+  } catch {}
+}
+
+// ── Trip booking links ────────────────────────────────────
+function buildTripBookingLinks(item) {
+  const lat = item.lat.toFixed(5), lon = item.lon.toFixed(5);
+  const ext = 'target="_blank" rel="noopener noreferrer"';
+  const gmaps = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}`;
+  const routeBtn = `<a class="trip-route-btn" href="${gmaps}" ${ext}>🗺️ Route</a>`;
+
+  if (item.accType === 'camping') {
+    return `<a class="trip-book-btn" href="https://www.acsi.eu/nl/campings/zoeken/?lat=${lat}&lng=${lon}" ${ext}>ACSI ↗</a>
+            ${routeBtn}`;
+  }
+  if (item.accType === 'vakantiewoning') {
+    const enc = encodeURIComponent(item.name);
+    return `<a class="trip-book-btn" href="https://www.airbnb.nl/s/homes?ne_lat=${(item.lat+0.2).toFixed(3)}&ne_lng=${(item.lon+0.2).toFixed(3)}&sw_lat=${(item.lat-0.2).toFixed(3)}&sw_lng=${(item.lon-0.2).toFixed(3)}" ${ext}>Airbnb ↗</a>
+            ${routeBtn}`;
+  }
+  // hotel
+  const fmtDate = d => d.toISOString().slice(0, 10);
+  const cin = new Date(); cin.setDate(cin.getDate() + 1);
+  const cout = new Date(); cout.setDate(cout.getDate() + 2);
+  return `<a class="trip-book-btn" href="https://www.booking.com/searchresults.html?ss=${encodeURIComponent(item.name)}&latitude=${lat}&longitude=${lon}&checkin=${fmtDate(cin)}&checkout=${fmtDate(cout)}" ${ext}>Booking ↗</a>
+          ${routeBtn}`;
+}
+
+// Grote "Zoek op boekingssites" banner — bovenaan de resultaten
+function buildTripBookBanner(loc, minKm, maxKm) {
+  const lat = loc.lat.toFixed(4), lon = loc.lon.toFixed(4);
+  const ext = 'target="_blank" rel="noopener noreferrer"';
+  const accType = tripState.accType;
+
+  let links = '';
+  if (accType === 'camping') {
+    links = `
+      <a class="book-link" href="https://www.acsi.eu/nl/campings/zoeken/?lat=${lat}&lng=${lon}" ${ext}>⛺ ACSI</a>
+      <a class="book-link" href="https://opencampingmap.org/#10/${lat}/${lon}" ${ext}>🗺️ OpenCampingMap</a>
+      <a class="book-link" href="https://www.campingzoeken.nl/" ${ext}>🔍 Campingzoeken.nl</a>
+      <a class="book-link" href="https://www.booking.com/searchresults.html?ss=camping&latitude=${lat}&longitude=${lon}" ${ext}>📅 Booking</a>`;
+  } else if (accType === 'hotel') {
+    links = `
+      <a class="book-link" href="https://www.booking.com/searchresults.html?latitude=${lat}&longitude=${lon}" ${ext}>📅 Booking.com</a>
+      <a class="book-link" href="https://www.hotels.nl/search?lat=${lat}&lon=${lon}" ${ext}>🏨 Hotels.nl</a>`;
+  } else {
+    links = `
+      <a class="book-link" href="https://www.airbnb.nl/s/homes?ne_lat=${(loc.lat+0.5).toFixed(3)}&ne_lng=${(loc.lon+0.5).toFixed(3)}&sw_lat=${(loc.lat-0.5).toFixed(3)}&sw_lng=${(loc.lon-0.5).toFixed(3)}" ${ext}>🏡 Airbnb</a>
+      <a class="book-link" href="https://www.bungalow.net/zoeken?lat=${lat}&lng=${lon}" ${ext}>🏠 Bungalow.net</a>
+      <a class="book-link" href="https://www.booking.com/searchresults.html?ss=apartment&latitude=${lat}&longitude=${lon}" ${ext}>📅 Booking</a>`;
+  }
+  return `<li class="book-banner">
+    <div class="book-banner-title">Zoek & boek alle opties</div>
+    <div class="book-links">${links}</div>
+  </li>`;
+}
+
+// ── Trip card HTML ────────────────────────────────────────
+function buildTripCard(item, idx, isSelected) {
+  const typeInfo = TRIP_ACC[item.accType];
+  const travelMin = Math.round((item.dist / (TRIP_SPEEDS[tripState.transport] || 85)) * 60);
+  const amenChips = item.amenities.slice(0, 5)
+    .map(a => `<span class="card-chip">${a.label}</span>`).join('');
+  const stars = item.stars ? `· ${'★'.repeat(Math.min(5, Math.round(item.stars)))}` : '';
+  const cap   = item.capacity ? `· ${item.capacity} pers.` : '';
+  return `
+    <div class="trip-card-icon">${typeInfo.icon}</div>
+    <div class="trip-card-body">
+      <div class="trip-card-meta">
+        <span class="trip-card-dist">${formatDist(item.dist)} · ~${formatH(travelMin)}</span>
+        ${stars}${cap}
+      </div>
+      <div class="trip-card-name">${escHtml(item.name)}</div>
+      ${amenChips ? `<div class="trip-card-chips">${amenChips}</div>` : ''}
+    </div>
+    <div class="trip-card-actions">
+      ${buildTripBookingLinks(item)}
+    </div>`;
+}
+
+// ── Render trip resultaten ────────────────────────────────
+function renderTripResults(items, minKm, maxKm) {
+  markersLayer.clearLayers();
+  markerMap.clear();
+
+  // Sort
+  if (tripState.sort === 'name')  items.sort((a, b) => a.name.localeCompare(b.name, 'nl'));
+  else if (tripState.sort === 'stars') items.sort((a, b) => (b.stars ?? -1) - (a.stars ?? -1));
+  else items.sort((a, b) => a.dist - b.dist);  // default: afstand
+
+  const list = document.getElementById('results-list');
+  list.innerHTML = '';
+
+  const count = items.length;
+  document.getElementById('results-count').textContent = count;
+  document.getElementById('results-header').classList.remove('hidden');
+
+  const typeInfo = TRIP_ACC[tripState.accType];
+  const modeLabel = tripState.transport === 'train' ? 'trein' :
+                    tripState.transport === 'cycling' ? 'fiets' : 'auto';
+  document.getElementById('radius-info').textContent =
+    `${formatH(tripState.minMin)}–${formatH(tripState.maxMin)} · ${modeLabel} · ~${minKm}–${maxKm} km`;
+
+  // Booking banner bovenaan
+  list.insertAdjacentHTML('beforeend', buildTripBookBanner(userLocation, minKm, maxKm));
+
+  if (!count) {
+    list.insertAdjacentHTML('beforeend', `<li class="empty-state">
+      <h3 class="empty-title">Geen resultaten in OpenStreetMap</h3>
+      <p class="empty-body">OSM is in dit gebied mogelijk incompleet. Gebruik de boekingssites hierboven voor een volledig overzicht.</p>
+    </li>`);
+    setScreen('results'); return;
+  }
+
+  // Sort control
+  list.insertAdjacentHTML('beforeend', `<li class="trip-sort-row" style="list-style:none">
+    <label for="trip-sort">Sorteren:</label>
+    <select id="trip-sort">
+      <option value="distance"${tripState.sort==='distance'?' selected':''}>Afstand</option>
+      <option value="name"${tripState.sort==='name'?' selected':''}>Naam</option>
+      ${typeInfo.hasStars ? `<option value="stars"${tripState.sort==='stars'?' selected':''}>Sterren</option>` : ''}
+    </select>
+  </li>`);
+  document.getElementById('trip-sort')?.addEventListener('change', e => {
+    tripState.sort = e.target.value;
+    renderTripResults([...items], minKm, maxKm);
+  });
+
+  const shown = items.slice(0, 60);
+  shown.forEach((item, idx) => {
+    const isSelected = item.id == selectedItemId;
+
+    // Kaartmarker
+    const pin = L.divIcon({
+      html: `<span class="pin-typed">${typeInfo.icon}</span>`,
+      className: '', iconSize: [30, 30], iconAnchor: [15, 15],
+    });
+    const marker = L.marker([item.lat, item.lon], { icon: pin })
+      .bindPopup(`<div class="popup-name">${escHtml(item.name)}</div>
+                  <div style="font-family:var(--mono);font-size:11px;color:var(--ink-3);margin-top:2px">${formatDist(item.dist)} · ${typeInfo.label}</div>`)
+      .addTo(markersLayer);
+    markerMap.set(item.id, marker);
+    marker.on('click', () => {
+      selectedItemId = item.id; highlightTripItem(item.id);
+    });
+
+    // Lijstitem
+    const li = document.createElement('li');
+    li.className = `trip-card${isSelected ? ' selected' : ''}`;
+    li.dataset.id = item.id;
+    li.innerHTML = buildTripCard(item, idx, isSelected);
+    li.addEventListener('click', e => {
+      if (e.target.closest('a')) return;   // klik op boek-link → niet highlighten
+      selectedItemId = item.id;
+      map.setView([item.lat, item.lon], 12);
+      if (markersLayer.zoomToShowLayer) markersLayer.zoomToShowLayer(marker, () => marker.openPopup());
+      else marker.openPopup();
+      highlightTripItem(item.id);
+    });
+    li.addEventListener('mouseenter', () =>
+      markerMap.get(item.id)?.getElement()?.querySelector('.pin-typed')?.classList.add('hover'));
+    li.addEventListener('mouseleave', () =>
+      markerMap.get(item.id)?.getElement()?.querySelector('.pin-typed')?.classList.remove('hover'));
+    list.appendChild(li);
+  });
+
+  if (items.length > 60) {
+    list.insertAdjacentHTML('beforeend',
+      `<li style="text-align:center;color:var(--ink-3);font-size:11px;padding:16px;font-family:var(--mono);list-style:none">
+        + ${items.length - 60} meer — gebruik bovenstaande boekingssites voor compleet overzicht
+      </li>`);
+  }
+
+  setScreen('results');
+}
+
+function highlightTripItem(id) {
+  document.querySelectorAll('.trip-card').forEach(el =>
+    el.classList.toggle('selected', el.dataset.id == id));
+  document.querySelector(`.trip-card[data-id="${id}"]`)
+    ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+// ── Hoofd zoekfunctie voor trip ───────────────────────────
+async function doTripSearch() {
+  if (!userLocation) {
+    const q = document.getElementById('location-input').value.trim();
+    if (!q) { showToast(t('enterLocation')); return; }
+    showToast(t('searching2'));
+    try {
+      const r = await geocode(q);
+      if (!r) { showToast(t('locationNotFound')); return; }
+      setUserLocation(r.lat, r.lon, r.label);
+    } catch { showToast(t('lookupFailed')); return; }
+  }
+
+  const minKm = tripKm(tripState.transport, tripState.minMin);
+  const maxKm = tripKm(tripState.transport, tripState.maxMin);
+  if (maxKm <= 0) { showToast('Stel een maximale reistijd in.'); return; }
+
+  setSearching(true);
+  allResults = []; selectedItemId = null;
+  lastInnerRing = null; lastFallbackInnerKm = null;
+
+  try {
+    // 1. Teken donut meteen op kaart (geen API-call nodig)
+    drawTripDonut(userLocation, minKm * 1000, maxKm * 1000);
+    document.getElementById('map-legend').classList.add('hidden');
+
+    // 2. Haal verblijven op via Overpass
+    setSearchProgress('Verblijven zoeken…');
+    const raw = await fetchTripPlaces(tripState.accType, userLocation, maxKm);
+
+    // 3. Verwerk: filter op donut, dedup, sorteer
+    const items    = processTripResults(raw, userLocation, minKm, maxKm);
+    const filtered = applyTripFilters(items);
+
+    // 4. Render
+    renderTripResults(filtered, minKm, maxKm);
+  } catch (err) {
+    console.error('Trip search failed:', err);
+    showToast(t('searchFailed'));
+  } finally {
+    setSearching(false);
+  }
 }
 
 // ── Boot ───────────────────────────────────────────────────

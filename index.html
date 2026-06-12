@@ -112,6 +112,9 @@
           <button class="mode-tab seg-btn" data-mode="overnight">
             <span data-i18n="modeStays">Overnachten</span>
           </button>
+          <button class="mode-tab seg-btn" data-mode="trip">
+            <span>Trip plannen</span>
+          </button>
         </div>
 
         <!-- ── Locatie ─────────────────────────────────────────── -->
@@ -240,6 +243,86 @@
             </label>
             <div id="acc-amenity-chips" class="chip-row chip-grid"></div>
           </div>
+        </section>
+
+        <!-- ── Trip plannen (eigen tab, eigen slider, eigen filters) ── -->
+        <section id="section-trip" class="control-section hidden">
+
+          <!-- Vervoer: Auto / Trein / Fiets — geen lopen -->
+          <label class="section-label">Vervoer</label>
+          <div class="transport-row" id="trip-transport-row">
+            <button class="trip-tx-btn tx-btn on" data-mode="driving">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M5 17h14M7 17v-5l2-5h6l2 5v5"/><circle cx="8" cy="17" r="1.5"/><circle cx="16" cy="17" r="1.5"/></svg>
+              <span>Auto</span>
+            </button>
+            <button class="trip-tx-btn tx-btn" data-mode="train">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><rect x="4" y="3" width="16" height="14" rx="3"/><path d="M4 11h16M8 19l-2 2M16 19l2 2M12 17v4"/><circle cx="8" cy="14" r="1"/><circle cx="16" cy="14" r="1"/></svg>
+              <span>Trein</span>
+            </button>
+            <button class="trip-tx-btn tx-btn" data-mode="cycling">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/><path d="m9 17 4-8h3M9 6h3l1 3"/></svg>
+              <span>Fiets</span>
+            </button>
+          </div>
+
+          <!-- Eigen reistijd slider: 0-8u, stap 30 min -->
+          <div class="tc-head" style="margin-top:var(--s4)">
+            <span class="tc-question">Reistijd</span>
+            <span id="trip-range-display" class="tc-vals"></span>
+          </div>
+          <div class="tc-row">
+            <div class="tc-track-wrap dual-range-container">
+              <div class="range-track tc-track">
+                <div id="trip-range-fill" class="range-fill tc-fill"></div>
+              </div>
+              <input id="trip-min" type="range" min="0" max="480" step="30" value="120" />
+              <input id="trip-max" type="range" min="0" max="480" step="30" value="300" />
+              <div id="trip-range-ticks" class="range-ticks tc-ticks">
+                <span>0</span><span>2u</span><span>4u</span><span>6u</span><span>8u</span>
+              </div>
+            </div>
+            <div id="trip-preview" class="tc-preview" aria-hidden="true"></div>
+          </div>
+
+          <!-- Soort verblijf -->
+          <label class="section-label" style="margin-top:var(--s5)">Type verblijf</label>
+          <div class="chip-row" id="trip-acc-row">
+            <button class="trip-acc-btn chiplabel on" data-type="camping">⛺ Camping</button>
+            <button class="trip-acc-btn chiplabel" data-type="hotel">🏨 Hotel / B&amp;B</button>
+            <button class="trip-acc-btn chiplabel" data-type="vakantiewoning">🏠 Vakantiehuis</button>
+          </div>
+
+          <!-- Voorzieningen (dynamisch per type) -->
+          <div class="filter-sub">
+            <label class="section-label sub">
+              Voorzieningen <span class="label-hint">meerdere mogelijk</span>
+            </label>
+            <div id="trip-filter-chips" class="chip-row chip-grid"></div>
+          </div>
+
+          <!-- Personen (alleen vakantiehuis) -->
+          <div id="trip-persons-section" class="filter-sub hidden">
+            <label class="section-label sub">Min. personen</label>
+            <div class="chip-row" id="trip-persons-btns">
+              <button class="trip-pers-btn filter-opt-btn chiplabel on" data-value="0">Alle</button>
+              <button class="trip-pers-btn filter-opt-btn chiplabel" data-value="2">2+</button>
+              <button class="trip-pers-btn filter-opt-btn chiplabel" data-value="4">4+</button>
+              <button class="trip-pers-btn filter-opt-btn chiplabel" data-value="6">6+</button>
+              <button class="trip-pers-btn filter-opt-btn chiplabel" data-value="8">8+</button>
+            </div>
+          </div>
+
+          <!-- Sterren (alleen hotel) -->
+          <div id="trip-stars-section" class="filter-sub hidden">
+            <label class="section-label sub">Min. sterren</label>
+            <div class="chip-row" id="trip-stars-btns">
+              <button class="trip-star-btn filter-opt-btn chiplabel on" data-value="0">Alle</button>
+              <button class="trip-star-btn filter-opt-btn chiplabel" data-value="2">2+</button>
+              <button class="trip-star-btn filter-opt-btn chiplabel" data-value="3">3+</button>
+              <button class="trip-star-btn filter-opt-btn chiplabel" data-value="4">4+</button>
+            </div>
+          </div>
+
         </section>
 
         <!-- ── Open now + sort ─────────────────────────────────── -->
