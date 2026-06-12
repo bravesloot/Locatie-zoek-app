@@ -47,7 +47,11 @@ const STARTING_POINTS = [
 
 // ── External APIs ──────────────────────────────────────────
 const VALHALLA = 'https://valhalla1.openstreetmap.de/isochrone';
-const OVERPASS = 'https://overpass-api.de/api/interpreter';
+const OVERPASS_MIRRORS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+];
 const COSTING  = { driving: 'auto', cycling: 'bicycle', walking: 'pedestrian' };
 const SPEEDS   = { driving: 40, cycling: 15, walking: 5 };
 // Leaflet's colour parser doesn't understand oklch(); hex twin of --accent
@@ -539,11 +543,10 @@ function applySliderConfig(mode) {
 }
 
 function getEffectiveMin() {
-  const minV = parseInt(document.getElementById('time-min').value);
-  const maxV = parseInt(document.getElementById('time-max').value);
-  const atBottom = minV <= parseInt(document.getElementById('time-min').min);
-  if (atBottom && currentMode === 'overnight') return Math.max(0, maxV - 60);
-  return atBottom ? 0 : minV;
+  const minEl = document.getElementById('time-min');
+  const minV  = parseInt(minEl.value);
+  // Donut only when the user explicitly raises the min slider
+  return minV <= parseInt(minEl.min) ? 0 : minV;
 }
 
 function getEffectiveMax() {
@@ -1034,45 +1037,25 @@ async function doSearch() {
     const isLarge     = maxMin > 90;
     const isVeryLarge = maxMin > 240;
     const generalize  = isVeryLarge ? 300 : isLarge ? 150 : 80;
-    const isoTimeout  = isVeryLarge ? 30000 : isLarge ? 20000 : 14000;
     const opTimeout   = isVeryLarge ? 120 : isLarge ? 90 : 30;
 
     try {
-      let outerRing, outerAllRings, innerRingResult = null;
+      // Valhalla first (single call ≤120 min, multi-hop above); the custom
+      // OSM engine is the backup when Valhalla is down or overloaded.
+      const outer = await getIsochroneRing(userLocation, maxMin, selectedTransport, generalize);
+      usedCustom  = outer.custom;
 
-      // 1) Custom OSM routing engine (no time limit, no external dependency)
-      if (routingWorker) {
+      let innerRingResult = null;
+      if (hasDonut) {
         try {
-          outerRing     = await computeCustomIsochrone(userLocation, maxMin, selectedTransport);
-          outerAllRings = [outerRing];
-          usedCustom    = true;
-          if (hasDonut && minMin > 0) {
-            try {
-              innerRingResult = await computeCustomIsochrone(userLocation, minMin, selectedTransport);
-            } catch { innerRingResult = null; }
-          }
-        } catch (customErr) {
-          console.warn('Custom routing failed, falling back to Valhalla:', customErr.message);
-        }
+          innerRingResult = (await getIsochroneRing(userLocation, minMin, selectedTransport, generalize)).ring;
+        } catch { innerRingResult = null; }
       }
 
-      // 2) Multi-hop Valhalla fallback
-      if (!usedCustom) {
-        const result = await fetchLargeIsochrone(userLocation, maxMin, selectedTransport, generalize);
-        outerRing     = result.ring;
-        outerAllRings = result.allRings;
-        if (hasDonut && minMin > 0) {
-          try {
-            const r = await fetchLargeIsochrone(userLocation, minMin, selectedTransport, generalize);
-            innerRingResult = r.ring;
-          } catch { innerRingResult = null; }
-        }
-      }
-
-      outerRingCoords = outerRing;
-      outerPolyStr    = coordsToOverpassPoly(outerRing, maxMin);
+      outerRingCoords = outer.ring;
+      outerPolyStr    = coordsToOverpassPoly(outer.ring, maxMin);
       lastInnerRing   = innerRingResult;
-      drawLargeIsochrone(outerAllRings, outerRing, innerRingResult);
+      drawLargeIsochrone(outer.allRings, outer.ring, innerRingResult);
 
     } catch (err) {
       console.warn('Isochrone fallback (circle):', err.message);
@@ -1094,16 +1077,27 @@ async function doSearch() {
       ? Math.min(minutesToMeters(maxMin, selectedTransport), MAX_OVERPASS_RADIUS)
       : null;
 
+    // Safety net: if the isochrone-polygon query finds nothing (degenerate
+    // ring, water-heavy hull, …), retry with a plain radius search so the
+    // user still gets results.
+    const retryRadius = Math.min(minutesToMeters(maxMin, selectedTransport), MAX_OVERPASS_RADIUS);
+
+    setSearchProgress('Plekken zoeken…');
+
     if (currentMode === 'activity') {
-      const cats       = [...selectedCats];
-      const rawResults = await Promise.all(
-        cats.map(cat => fetchActivityPlaces(cat, outerPolyStr, userLocation, radiusM, opTimeout))
-      );
-      allResults  = processActivityResults(rawResults.flat(), userLocation);
+      const cats = [...selectedCats];
+      let raw = await fetchActivityPlaces(cats, outerPolyStr, userLocation, radiusM, opTimeout);
+      if (!raw.length && outerPolyStr) {
+        raw = await fetchActivityPlaces(cats, null, userLocation, retryRadius, opTimeout);
+      }
+      allResults  = processActivityResults(raw, userLocation);
       visibleCats = new Set(cats);
       syncCatChips();
     } else {
-      const raw  = await fetchOvernightPlaces(selectedAccType, outerPolyStr, userLocation, radiusM, opTimeout);
+      let raw = await fetchOvernightPlaces(selectedAccType, outerPolyStr, userLocation, radiusM, opTimeout);
+      if (!raw.length && outerPolyStr) {
+        raw = await fetchOvernightPlaces(selectedAccType, null, userLocation, retryRadius, opTimeout);
+      }
       allResults = processOvernightResults(raw, userLocation, selectedAccType);
     }
 
@@ -1165,10 +1159,19 @@ function convexHull(points) {
 async function batchedSettled(fns, batchSize = 4) {
   const results = [];
   for (let i = 0; i < fns.length; i += batchSize) {
+    setSearchProgress(`Gebied berekenen… ${Math.min(i + batchSize, fns.length)}/${fns.length}`);
     const batch = await Promise.allSettled(fns.slice(i, i + batchSize).map(fn => fn()));
     results.push(...batch);
   }
   return results;
+}
+
+// Update the search-button label while a search is running
+function setSearchProgress(label) {
+  const btn = document.getElementById('search-btn');
+  if (!btn?.disabled) return;
+  const span = btn.querySelector('span');
+  if (span) span.textContent = label;
 }
 
 // Fetch a single Valhalla isochrone leg (clamped to VALHALLA_MAX_MIN)
@@ -1262,15 +1265,12 @@ function initRoutingWorker() {
 }
 
 function _onWorkerPhase({ phase, nodes }) {
-  const btn  = document.getElementById('search-btn');
-  if (!btn?.disabled) return;
   const labels = {
     graph:     'Wegen laden…',
     dijkstra:  nodes ? `Berekenen (${nodes} knopen)…` : 'Berekenen…',
     isochrone: 'Isochrone opstellen…',
   };
-  const span = btn.querySelector('span');
-  if (span) span.textContent = labels[phase] || phase;
+  setSearchProgress(labels[phase] || phase);
 }
 
 function routeInWorker(ways, loc, budgetMin, mode) {
@@ -1282,9 +1282,11 @@ function routeInWorker(ways, loc, budgetMin, mode) {
 }
 
 function isoBbox(lat, lon, budgetMin, mode) {
-  const topSpeeds = { driving: 110, cycling: 22, walking: 5 };
-  const capKm     = { driving: 220, cycling: 50,  walking: 15 };
-  const km   = Math.min((topSpeeds[mode] || 40) * (budgetMin / 60) * 1.3, capKm[mode] || 220);
+  // Effective (not top) speeds keep the bbox — and thus the Overpass
+  // download — realistic. Hard caps protect the public API.
+  const effSpeeds = { driving: 80, cycling: 16, walking: 4.5 };
+  const capKm     = { driving: 160, cycling: 45, walking: 15 };
+  const km   = Math.min((effSpeeds[mode] || 60) * (budgetMin / 60) * 1.15, capKm[mode] || 160);
   const dLat = km / 111;
   const dLon = km / (111 * Math.cos(lat * Math.PI / 180));
   return {
@@ -1297,23 +1299,23 @@ function isoBbox(lat, lon, budgetMin, mode) {
 function _hwPattern(mode, budgetMin) {
   if (mode === 'walking') return 'footway|path|pedestrian|residential|service|tertiary|unclassified|living_street|steps|track';
   if (mode === 'cycling') return 'cycleway|residential|tertiary|secondary|path|unclassified|primary|service|living_street|footway';
-  if (budgetMin > 120)   return 'motorway|motorway_link|trunk|trunk_link|primary|primary_link';
-  if (budgetMin > 30)    return 'motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link|tertiary|tertiary_link';
-  return 'motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link|tertiary|tertiary_link|residential|unclassified|service|living_street|road';
+  // Driving: local streets only for tiny budgets — anything bigger and the
+  // download explodes; major roads carry virtually all of the reach anyway.
+  if (budgetMin > 60) return 'motorway|motorway_link|trunk|trunk_link|primary|primary_link';
+  if (budgetMin > 20) return 'motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link|tertiary|tertiary_link';
+  return 'motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link|tertiary|tertiary_link|residential|unclassified|living_street|road';
 }
 
 function _roadCacheKey(bbox, mode, budgetMin) {
-  const tier = budgetMin > 120 ? 'M' : budgetMin > 30 ? 'S' : 'F';
-  const g = (v, r) => (Math.round(v / r) * r).toFixed(2);
-  return `${mode}:${tier}:${g(bbox.south, 0.5)},${g(bbox.west, 0.5)}-${g(bbox.north, 0.5)},${g(bbox.east, 0.5)}`;
+  const tier = budgetMin > 60 ? 'M' : budgetMin > 20 ? 'S' : 'F';
+  const g = v => (Math.round(v / 0.5) * 0.5).toFixed(2);
+  return `${mode}:${tier}:${g(bbox.south)},${g(bbox.west)}-${g(bbox.north)},${g(bbox.east)}`;
 }
 
 async function fetchRoadNetwork(bbox, mode, budgetMin) {
   const pattern = _hwPattern(mode, budgetMin);
-  const query = `[out:json][timeout:90][bbox:${bbox.str}];\n(way["highway"~"^(${pattern})$"];);\nout geom qt;`;
-  const res = await fetch(OVERPASS, { method: 'POST', body: query });
-  if (!res.ok) throw new Error(`Road network Overpass ${res.status}`);
-  const data = await res.json();
+  const query = `[out:json][timeout:60][bbox:${bbox.str}];\n(way["highway"~"^(${pattern})$"];);\nout geom qt;`;
+  const data = await overpassFetch(query);
   return data.elements || [];
 }
 
@@ -1325,10 +1327,24 @@ async function computeCustomIsochrone(loc, budgetMin, mode) {
   if (!ways) {
     ways = await fetchRoadNetwork(bbox, mode, budgetMin);
     if (!ways.length) throw new Error('No road data in area');
+    if (ways.length > 120_000) throw new Error('Road network too large');
     roadNetCache.set(cKey, ways);
     if (roadNetCache.size > 8) roadNetCache.delete(roadNetCache.keys().next().value);
   }
   return routeInWorker(ways, loc, budgetMin, mode);  // [[lon,lat],…]
+}
+
+// One ring for any budget. Primary: Valhalla (single call ≤120 min,
+// multi-hop above). Backup: the custom OSM engine in the Web Worker.
+async function getIsochroneRing(loc, minutes, mode, generalize) {
+  try {
+    const r = await fetchLargeIsochrone(loc, minutes, mode, generalize);
+    return { ring: r.ring, allRings: r.allRings, custom: false };
+  } catch (vErr) {
+    if (!routingWorker) throw vErr;
+    const ring = await computeCustomIsochrone(loc, minutes, mode);
+    return { ring, allRings: [ring], custom: true };
+  }
 }
 
 // ── Self-learning ranker ───────────────────────────────────
@@ -1404,7 +1420,7 @@ function extractRingCoords(geojson) {
 
 function coordsToOverpassPoly(ring, minutes) {
   const maxPoints = minutes > 90 ? 60 : 80;
-  const step = Math.max(1, Math.floor(ring.length / maxPoints));
+  const step = Math.max(1, Math.ceil(ring.length / maxPoints));
   return ring.filter((_, i) => i % step === 0)
     .map(([lon, lat]) => `${lat.toFixed(5)} ${lon.toFixed(5)}`).join(' ');
 }
@@ -1473,17 +1489,51 @@ function pointInPolygon(lon, lat, ring) {
   return inside;
 }
 
-// ── Overpass: activity ─────────────────────────────────────
-async function fetchActivityPlaces(cat, polyStr, loc, radiusM, opTimeout) {
-  const catInfo = CATEGORY_MAP[cat];
+// ── Overpass fetch with mirror rotation ────────────────────
+async function overpassFetch(query) {
+  let lastErr = null;
+  for (const url of OVERPASS_MIRRORS) {
+    try {
+      const res = await fetch(url, { method: 'POST', body: query });
+      if (res.ok) return res.json();
+      lastErr = new Error(`Overpass ${res.status}`);
+      if (res.status === 400) break; // bad query — other mirrors won't help
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr || new Error('Overpass unreachable');
+}
+
+// Tag predicates to classify combined-query results back to a category
+const CAT_MATCH = {
+  cafe:        tg => tg.amenity === 'cafe',
+  restaurant:  tg => tg.amenity === 'restaurant',
+  bar:         tg => tg.amenity === 'bar',
+  museum:      tg => tg.tourism === 'museum',
+  park:        tg => tg.leisure === 'park',
+  hiking:      tg => tg.route === 'hiking' || tg.leisure === 'nature_reserve',
+  supermarket: tg => tg.shop === 'supermarket',
+  library:     tg => tg.amenity === 'library',
+  cinema:      tg => tg.amenity === 'cinema',
+  bakery:      tg => tg.shop === 'bakery',
+  fast_food:   tg => tg.amenity === 'fast_food',
+  playground:  tg => tg.leisure === 'playground',
+};
+
+// ── Overpass: activity (all categories in ONE request) ─────
+// One combined query avoids the per-IP rate limit (429) that parallel
+// per-category requests trigger on public Overpass instances.
+async function fetchActivityPlaces(cats, polyStr, loc, radiusM, opTimeout) {
   const filter  = buildFilter(polyStr, loc, radiusM);
   const timeout = opTimeout || 30;
-  const lines   = catInfo.queries.map(q => `  ${q}${filter};`).join('\n');
+  const lines   = cats
+    .flatMap(cat => CATEGORY_MAP[cat].queries.map(q => `  ${q}${filter};`))
+    .join('\n');
   const query   = `[out:json][timeout:${timeout}];\n(\n${lines}\n);\nout center tags;`;
-  const res     = await fetch(OVERPASS, { method: 'POST', body: query });
-  if (!res.ok) throw new Error(`Overpass ${res.status}`);
-  const data    = await res.json();
-  return (data.elements || []).map(el => ({ ...el, _cat: cat }));
+  const data    = await overpassFetch(query);
+  return (data.elements || []).map(el => {
+    const cat = cats.find(c => CAT_MATCH[c]?.(el.tags || {}));
+    return cat ? { ...el, _cat: cat } : null;
+  }).filter(Boolean);
 }
 
 // ── Overpass: overnight ────────────────────────────────────
@@ -1493,9 +1543,7 @@ async function fetchOvernightPlaces(accType, polyStr, loc, radiusM, opTimeout) {
   const timeout  = Math.max(opTimeout || 30, 60);
   const lines    = typeInfo.osmQueries.map(q => `  ${q}${filter};`).join('\n');
   const query    = `[out:json][timeout:${timeout}];\n(\n${lines}\n);\nout center tags;`;
-  const res      = await fetch(OVERPASS, { method: 'POST', body: query });
-  if (!res.ok) throw new Error(`Overpass ${res.status}`);
-  const data     = await res.json();
+  const data     = await overpassFetch(query);
   return data.elements || [];
 }
 
