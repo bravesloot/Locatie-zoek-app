@@ -93,6 +93,7 @@ const TRANSLATIONS = {
     sortRating: 'Beoordeling',
     sortName: 'Naam',
     sortStars: '⭐ Sterren',
+    sortScore: '✨ Beste match',
     viewMap: 'Kaart',
     viewList: 'Lijst',
     favorites: 'Favorieten',
@@ -187,6 +188,7 @@ const TRANSLATIONS = {
     sortRating: 'Rating',
     sortName: 'Name',
     sortStars: '⭐ Stars',
+    sortScore: '✨ Best match',
     viewMap: 'Map',
     viewList: 'List',
     favorites: 'Favorites',
@@ -809,10 +811,16 @@ function initUI() {
   });
 
   // Sort
-  document.getElementById('sort-select').addEventListener('change', e => {
+  const _sortSel = document.getElementById('sort-select');
+  _sortSel.addEventListener('change', e => {
     currentSort = e.target.value;
     if (allResults.length) renderList();
   });
+  if (!_sortSel.querySelector('option[value="score"]')) {
+    const _scoreOpt = document.createElement('option');
+    _scoreOpt.value = 'score'; _scoreOpt.textContent = t('sortScore');
+    _sortSel.appendChild(_scoreOpt);
+  }
 
   // Search
   document.getElementById('search-btn').addEventListener('click', doSearch);
@@ -1022,6 +1030,7 @@ async function doSearch() {
     let outerPolyStr  = null;
     let outerRingCoords = null;
     let usedFallback  = false;
+    let usedCustom    = false;
     const isLarge     = maxMin > 90;
     const isVeryLarge = maxMin > 240;
     const generalize  = isVeryLarge ? 300 : isLarge ? 150 : 80;
@@ -1029,27 +1038,44 @@ async function doSearch() {
     const opTimeout   = isVeryLarge ? 120 : isLarge ? 90 : 30;
 
     try {
-      const { ring: outerRing, allRings: outerAllRings } =
-        await fetchLargeIsochrone(userLocation, maxMin, selectedTransport, generalize);
+      let outerRing, outerAllRings, innerRingResult = null;
+
+      // 1) Custom OSM routing engine (no time limit, no external dependency)
+      if (routingWorker) {
+        try {
+          outerRing     = await computeCustomIsochrone(userLocation, maxMin, selectedTransport);
+          outerAllRings = [outerRing];
+          usedCustom    = true;
+          if (hasDonut && minMin > 0) {
+            try {
+              innerRingResult = await computeCustomIsochrone(userLocation, minMin, selectedTransport);
+            } catch { innerRingResult = null; }
+          }
+        } catch (customErr) {
+          console.warn('Custom routing failed, falling back to Valhalla:', customErr.message);
+        }
+      }
+
+      // 2) Multi-hop Valhalla fallback
+      if (!usedCustom) {
+        const result = await fetchLargeIsochrone(userLocation, maxMin, selectedTransport, generalize);
+        outerRing     = result.ring;
+        outerAllRings = result.allRings;
+        if (hasDonut && minMin > 0) {
+          try {
+            const r = await fetchLargeIsochrone(userLocation, minMin, selectedTransport, generalize);
+            innerRingResult = r.ring;
+          } catch { innerRingResult = null; }
+        }
+      }
+
       outerRingCoords = outerRing;
       outerPolyStr    = coordsToOverpassPoly(outerRing, maxMin);
+      lastInnerRing   = innerRingResult;
+      drawLargeIsochrone(outerAllRings, outerRing, innerRingResult);
 
-      if (hasDonut) {
-        try {
-          const { ring: innerRing } =
-            await fetchLargeIsochrone(userLocation, minMin, selectedTransport, generalize);
-          lastInnerRing = innerRing;
-          drawLargeIsochrone(outerAllRings, outerRing, innerRing);
-        } catch {
-          lastInnerRing = null;
-          drawLargeIsochrone(outerAllRings, outerRing, null);
-        }
-      } else {
-        lastInnerRing = null;
-        drawLargeIsochrone(outerAllRings, outerRing, null);
-      }
     } catch (err) {
-      console.warn('Valhalla fallback:', err.message);
+      console.warn('Isochrone fallback (circle):', err.message);
       usedFallback = true;
       const outerM = minutesToMeters(maxMin, selectedTransport);
       const innerM = hasDonut ? minutesToMeters(minMin, selectedTransport) : 0;
@@ -1087,7 +1113,10 @@ async function doSearch() {
       allResults = allResults.filter(item => item.dist >= lastFallbackInnerKm);
     }
 
-    const modeLabel = usedFallback ? t('approxCircle') : `${t('roadNetwork')} · ${(t('transportLabel') || {})[selectedTransport] || selectedTransport}`;
+    const engineTag = usedCustom ? ' · OSM' : '';
+    const modeLabel = usedFallback
+      ? t('approxCircle')
+      : `${t('roadNetwork')}${engineTag} · ${(t('transportLabel') || {})[selectedTransport] || selectedTransport}`;
     const minLabel  = hasDonut ? `${t('from')} ${formatTravelTime(minMin)} ` : '';
     document.getElementById('radius-info').textContent =
       `${minLabel}${t('to')} ${formatTravelTime(maxMin)} · ${modeLabel}`;
@@ -1206,6 +1235,139 @@ function drawLargeIsochrone(allRings, hullRing, innerRing) {
   }
   addUserMarker();
 }
+
+// ── Custom OSM routing engine ──────────────────────────────
+
+let routingWorker  = null;
+const _workerCbs   = new Map();
+let   _workerSeq   = 0;
+const roadNetCache = new Map();
+
+function initRoutingWorker() {
+  try {
+    routingWorker = new Worker('routing-worker.js');
+    routingWorker.onmessage = ({ data }) => {
+      if (data.phase) { _onWorkerPhase(data); return; }
+      const cb = _workerCbs.get(data.id);
+      if (!cb) return;
+      _workerCbs.delete(data.id);
+      data.error ? cb.reject(new Error(data.error)) : cb.resolve(data.ring);
+    };
+    routingWorker.onerror = err => {
+      _workerCbs.forEach(cb => cb.reject(err));
+      _workerCbs.clear();
+      routingWorker = null;
+    };
+  } catch { routingWorker = null; }
+}
+
+function _onWorkerPhase({ phase, nodes }) {
+  const btn  = document.getElementById('search-btn');
+  if (!btn?.disabled) return;
+  const labels = {
+    graph:     'Wegen laden…',
+    dijkstra:  nodes ? `Berekenen (${nodes} knopen)…` : 'Berekenen…',
+    isochrone: 'Isochrone opstellen…',
+  };
+  const span = btn.querySelector('span');
+  if (span) span.textContent = labels[phase] || phase;
+}
+
+function routeInWorker(ways, loc, budgetMin, mode) {
+  return new Promise((resolve, reject) => {
+    const id = ++_workerSeq;
+    _workerCbs.set(id, { resolve, reject });
+    routingWorker.postMessage({ id, ways, lat: loc.lat, lon: loc.lon, budgetMin, mode });
+  });
+}
+
+function isoBbox(lat, lon, budgetMin, mode) {
+  const topSpeeds = { driving: 110, cycling: 22, walking: 5 };
+  const capKm     = { driving: 220, cycling: 50,  walking: 15 };
+  const km   = Math.min((topSpeeds[mode] || 40) * (budgetMin / 60) * 1.3, capKm[mode] || 220);
+  const dLat = km / 111;
+  const dLon = km / (111 * Math.cos(lat * Math.PI / 180));
+  return {
+    south: lat - dLat, west: lon - dLon,
+    north: lat + dLat, east: lon + dLon,
+    str: `${(lat-dLat).toFixed(4)},${(lon-dLon).toFixed(4)},${(lat+dLat).toFixed(4)},${(lon+dLon).toFixed(4)}`,
+  };
+}
+
+function _hwPattern(mode, budgetMin) {
+  if (mode === 'walking') return 'footway|path|pedestrian|residential|service|tertiary|unclassified|living_street|steps|track';
+  if (mode === 'cycling') return 'cycleway|residential|tertiary|secondary|path|unclassified|primary|service|living_street|footway';
+  if (budgetMin > 120)   return 'motorway|motorway_link|trunk|trunk_link|primary|primary_link';
+  if (budgetMin > 30)    return 'motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link|tertiary|tertiary_link';
+  return 'motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link|tertiary|tertiary_link|residential|unclassified|service|living_street|road';
+}
+
+function _roadCacheKey(bbox, mode, budgetMin) {
+  const tier = budgetMin > 120 ? 'M' : budgetMin > 30 ? 'S' : 'F';
+  const g = (v, r) => (Math.round(v / r) * r).toFixed(2);
+  return `${mode}:${tier}:${g(bbox.south, 0.5)},${g(bbox.west, 0.5)}-${g(bbox.north, 0.5)},${g(bbox.east, 0.5)}`;
+}
+
+async function fetchRoadNetwork(bbox, mode, budgetMin) {
+  const pattern = _hwPattern(mode, budgetMin);
+  const query = `[out:json][timeout:90][bbox:${bbox.str}];\n(way["highway"~"^(${pattern})$"];);\nout geom qt;`;
+  const res = await fetch(OVERPASS, { method: 'POST', body: query });
+  if (!res.ok) throw new Error(`Road network Overpass ${res.status}`);
+  const data = await res.json();
+  return data.elements || [];
+}
+
+async function computeCustomIsochrone(loc, budgetMin, mode) {
+  if (!routingWorker) throw new Error('No routing worker');
+  const bbox = isoBbox(loc.lat, loc.lon, budgetMin, mode);
+  const cKey = _roadCacheKey(bbox, mode, budgetMin);
+  let ways = roadNetCache.get(cKey);
+  if (!ways) {
+    ways = await fetchRoadNetwork(bbox, mode, budgetMin);
+    if (!ways.length) throw new Error('No road data in area');
+    roadNetCache.set(cKey, ways);
+    if (roadNetCache.size > 8) roadNetCache.delete(roadNetCache.keys().next().value);
+  }
+  return routeInWorker(ways, loc, budgetMin, mode);  // [[lon,lat],…]
+}
+
+// ── Self-learning ranker ───────────────────────────────────
+
+class LocalRanker {
+  constructor() {
+    this._k = 'lz_ranker_v1';
+    this.w  = this._load();
+  }
+  _load() {
+    try { return JSON.parse(localStorage.getItem(this._k)) || this._def(); }
+    catch { return this._def(); }
+  }
+  _def() { return { dist: 0.40, rating: 0.25, open: 0.20, amenities: 0.15 }; }
+  _save() { localStorage.setItem(this._k, JSON.stringify(this.w)); }
+  _feat(item) {
+    return {
+      dist:      Math.max(0, 1 - item.dist / 200),
+      rating:    item.rating ? Math.min(1, item.rating / 5) : 0.5,
+      open:      item.openStat === 'open' ? 1 : item.openStat === 'closed' ? 0 : 0.5,
+      amenities: item.amenIcons ? Math.min(1, item.amenIcons.length / 6) : 0,
+    };
+  }
+  score(item) {
+    const f = this._feat(item);
+    return Object.keys(this.w).reduce((s, k) => s + this.w[k] * (f[k] ?? 0), 0);
+  }
+  clicked(item) {
+    const lr = 0.05, f = this._feat(item);
+    Object.keys(this.w).forEach(k => {
+      this.w[k] = Math.max(0.05, Math.min(0.85, this.w[k] + lr * f[k]));
+    });
+    const sum = Object.values(this.w).reduce((a, v) => a + v, 0);
+    Object.keys(this.w).forEach(k => this.w[k] /= sum);
+    this._save();
+  }
+}
+
+const ranker = new LocalRanker();
 
 // ── Isochrone ──────────────────────────────────────────────
 async function fetchIsochrone(loc, minutes, mode, generalize, timeoutMs) {
@@ -1494,6 +1656,7 @@ function renderList() {
     else if (currentSort === 'time')   arr.sort((a, b) => (a.travelTime ?? Infinity) - (b.travelTime ?? Infinity));
     else if (currentSort === 'rating') arr.sort((a, b) => (b.rating ?? -1) - (a.rating ?? -1));
     else if (currentSort === 'stars')  arr.sort((a, b) => (b.stars ?? -1) - (a.stars ?? -1));
+    else if (currentSort === 'score')  arr.sort((a, b) => ranker.score(b) - ranker.score(a));
     else                               arr.sort((a, b) => a.name.localeCompare(b.name, lang));
     return arr;
   };
@@ -1530,6 +1693,7 @@ function renderList() {
     markerMap.set(item.id, marker);
 
     marker.on('click', () => {
+      ranker.clicked(item);
       selectedItemId = item.id;
       highlightItem(item.id);
       showDetailModal(item);
@@ -1544,6 +1708,7 @@ function renderList() {
       : buildActivityCardHTML(item, idx, isSelected);
 
     li.addEventListener('click', () => {
+      ranker.clicked(item);
       selectedItemId = item.id;
       map.setView([item.lat, item.lon], 15);
       if (markersLayer.zoomToShowLayer) markersLayer.zoomToShowLayer(marker, () => marker.openPopup());
@@ -1961,3 +2126,4 @@ function showToast(msg) {
 // ── Boot ───────────────────────────────────────────────────
 initMap();
 initUI();
+initRoutingWorker();
