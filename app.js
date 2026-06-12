@@ -52,6 +52,11 @@ const COSTING  = { driving: 'auto', cycling: 'bicycle', walking: 'pedestrian' };
 const SPEEDS   = { driving: 40, cycling: 15, walking: 5 };
 // Leaflet's colour parser doesn't understand oklch(); hex twin of --accent
 const ISO_COLOR = '#b55a3b';
+// Public Valhalla instances cap isochrones at ~120 min; we work around this
+// with a multi-hop approach for larger budgets.
+const VALHALLA_MAX_MIN  = 120;
+const MULTIHOP_SAMPLES  = 4;   // boundary points sampled per hop
+const MULTIHOP_MAX_HOPS = 2;   // max extra hops → exact up to 360 min, approx up to 480
 
 const SLIDER_CONFIG = {
   activity:  { max: 120, step: 5,  defaultMax: 30,
@@ -1024,22 +1029,24 @@ async function doSearch() {
     const opTimeout   = isVeryLarge ? 120 : isLarge ? 90 : 30;
 
     try {
-      const outerIso = await fetchIsochrone(userLocation, maxMin, selectedTransport, generalize, isoTimeout);
-      outerRingCoords = extractRingCoords(outerIso);
-      outerPolyStr   = coordsToOverpassPoly(outerRingCoords, maxMin);
+      const { ring: outerRing, allRings: outerAllRings } =
+        await fetchLargeIsochrone(userLocation, maxMin, selectedTransport, generalize);
+      outerRingCoords = outerRing;
+      outerPolyStr    = coordsToOverpassPoly(outerRing, maxMin);
 
       if (hasDonut) {
         try {
-          const innerIso = await fetchIsochrone(userLocation, minMin, selectedTransport, generalize, 12000);
-          lastInnerRing  = extractRingCoords(innerIso);
-          drawDonut(outerRingCoords, lastInnerRing);
+          const { ring: innerRing } =
+            await fetchLargeIsochrone(userLocation, minMin, selectedTransport, generalize);
+          lastInnerRing = innerRing;
+          drawLargeIsochrone(outerAllRings, outerRing, innerRing);
         } catch {
           lastInnerRing = null;
-          drawSingleIsochrone(outerRingCoords);
+          drawLargeIsochrone(outerAllRings, outerRing, null);
         }
       } else {
         lastInnerRing = null;
-        drawSingleIsochrone(outerRingCoords);
+        drawLargeIsochrone(outerAllRings, outerRing, null);
       }
     } catch (err) {
       console.warn('Valhalla fallback:', err.message);
@@ -1096,6 +1103,108 @@ async function doSearch() {
   } finally {
     setSearching(false);
   }
+}
+
+// ── Multi-hop isochrone helpers ────────────────────────────
+
+// Sample n evenly-spaced points from a coordinate ring [[lon,lat],…]
+function sampleRingPoints(ring, n) {
+  const step = ring.length / n;
+  return Array.from({ length: n }, (_, i) => ring[Math.floor(i * step)]);
+}
+
+// Andrew's monotone chain — returns convex hull of [[lon,lat],…] points
+function convexHull(points) {
+  if (points.length < 3) return points;
+  const pts = [...points].sort((a, b) => a[0] !== b[0] ? a[0] - b[0] : a[1] - b[1]);
+  const cross = (o, a, b) => (a[0]-o[0])*(b[1]-o[1]) - (a[1]-o[1])*(b[0]-o[0]);
+  const lower = [];
+  for (const p of pts) {
+    while (lower.length >= 2 && cross(lower.at(-2), lower.at(-1), p) <= 0) lower.pop();
+    lower.push(p);
+  }
+  const upper = [];
+  for (const p of [...pts].reverse()) {
+    while (upper.length >= 2 && cross(upper.at(-2), upper.at(-1), p) <= 0) upper.pop();
+    upper.push(p);
+  }
+  lower.pop(); upper.pop();
+  return lower.concat(upper);
+}
+
+// Run promise-factories in serial batches (avoids hammering the public API)
+async function batchedSettled(fns, batchSize = 4) {
+  const results = [];
+  for (let i = 0; i < fns.length; i += batchSize) {
+    const batch = await Promise.allSettled(fns.slice(i, i + batchSize).map(fn => fn()));
+    results.push(...batch);
+  }
+  return results;
+}
+
+// Fetch a single Valhalla isochrone leg (clamped to VALHALLA_MAX_MIN)
+async function fetchOneLeg(loc, minutes, mode, generalize) {
+  const clamped = Math.min(minutes, VALHALLA_MAX_MIN);
+  return fetchIsochrone(loc, clamped, mode, generalize, 22000).then(extractRingCoords);
+}
+
+// Fetch isochrone for any time budget via multi-hop.
+// Returns { ring: hull [[lon,lat]], allRings: [ring,…] }
+async function fetchLargeIsochrone(loc, totalMin, mode, generalize, hopsDone = 0) {
+  if (totalMin <= VALHALLA_MAX_MIN || hopsDone >= MULTIHOP_MAX_HOPS) {
+    const ring = await fetchOneLeg(loc, totalMin, mode, generalize);
+    return { ring, allRings: [ring] };
+  }
+
+  const stepRing = await fetchOneLeg(loc, VALHALLA_MAX_MIN, mode, generalize);
+  const remaining = totalMin - VALHALLA_MAX_MIN;
+  const samples   = sampleRingPoints(stepRing, MULTIHOP_SAMPLES);
+
+  const fns = samples.map(([lon, lat]) => () =>
+    fetchLargeIsochrone({ lat, lon }, remaining, mode, generalize, hopsDone + 1)
+  );
+  const subResults = await batchedSettled(fns, 4);
+
+  const allPoints = [...stepRing];
+  const allRings  = [stepRing];
+  for (const r of subResults) {
+    if (r.status === 'fulfilled' && r.value) {
+      allPoints.push(...r.value.ring);
+      allRings.push(...r.value.allRings);
+    }
+  }
+  return { ring: convexHull(allPoints), allRings };
+}
+
+// Draw outer area (with optional inner donut ring).
+// allRings: all sub-polygons from multi-hop; hullRing: their convex hull.
+function drawLargeIsochrone(allRings, hullRing, innerRing) {
+  isoLayer.clearLayers();
+  const hullLL = hullRing.map(([lon, lat]) => [lat, lon]);
+
+  if (allRings.length > 1) {
+    allRings.forEach(ring =>
+      L.polygon(ring.map(([lon, lat]) => [lat, lon]), {
+        color: ISO_COLOR, fillColor: ISO_COLOR,
+        fillOpacity: 0.07, weight: 0.5, opacity: 0.2,
+      }).addTo(isoLayer)
+    );
+  }
+
+  if (innerRing) {
+    const innerLL = innerRing.map(([lon, lat]) => [lat, lon]);
+    L.polygon([hullLL, innerLL], {
+      color: ISO_COLOR, fillColor: ISO_COLOR, fillOpacity: 0.12, weight: 1.5,
+    }).addTo(isoLayer);
+    L.polyline(innerLL, { color: ISO_COLOR, weight: 1.5, dashArray: '5 5', opacity: 0.8 }).addTo(isoLayer);
+    try { map.fitBounds(L.latLngBounds(hullLL), { padding: [30, 30] }); } catch {}
+  } else {
+    L.polygon(hullLL, {
+      color: ISO_COLOR, fillColor: ISO_COLOR, fillOpacity: 0.12, weight: 1.5,
+    }).addTo(isoLayer);
+    try { map.fitBounds(L.latLngBounds(hullLL), { padding: [30, 30] }); } catch {}
+  }
+  addUserMarker();
 }
 
 // ── Isochrone ──────────────────────────────────────────────
