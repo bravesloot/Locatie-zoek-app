@@ -372,6 +372,7 @@ let acTimer           = null;
 let favorites         = loadFavorites();
 let showFavOnly       = false;
 let lastInnerRing     = null;
+let lastFallbackInnerKm = null;
 let selectedItemId    = null;
 let markerMap         = new Map();
 
@@ -718,7 +719,7 @@ function initUI() {
 
   // Back button
   document.getElementById('back-btn').addEventListener('click', () => {
-    allResults = []; lastInnerRing = null; selectedItemId = null;
+    allResults = []; lastInnerRing = null; lastFallbackInnerKm = null; selectedItemId = null;
     markersLayer.clearLayers();
     isoLayer.clearLayers();
     document.getElementById('results-header').classList.add('hidden');
@@ -906,7 +907,7 @@ function switchMode(mode) {
   sortSel.value = 'distance'; currentSort = 'distance';
 
   // Clear results
-  allResults = []; lastInnerRing = null; selectedItemId = null;
+  allResults = []; lastInnerRing = null; lastFallbackInnerKm = null; selectedItemId = null;
   markersLayer.clearLayers(); isoLayer.clearLayers();
   document.getElementById('results-header').classList.add('hidden');
   document.getElementById('results-list').innerHTML = '';
@@ -1010,7 +1011,7 @@ async function doSearch() {
   const minMin = getEffectiveMin();
   const hasDonut = minMin > 0;
   setSearching(true);
-  allResults = []; lastInnerRing = null; selectedItemId = null;
+  allResults = []; lastInnerRing = null; lastFallbackInnerKm = null; selectedItemId = null;
 
   try {
     let outerPolyStr  = null;
@@ -1043,15 +1044,22 @@ async function doSearch() {
     } catch (err) {
       console.warn('Valhalla fallback:', err.message);
       usedFallback = true;
-      drawCircleFallback(userLocation, minutesToMeters(maxMin, selectedTransport));
+      const outerM = minutesToMeters(maxMin, selectedTransport);
+      const innerM = hasDonut ? minutesToMeters(minMin, selectedTransport) : 0;
+      drawCircleFallback(userLocation, outerM, innerM);
+      if (hasDonut) lastFallbackInnerKm = innerM / 1000;
     }
 
     // Legend
     const legend = document.getElementById('map-legend');
-    if (hasDonut && lastInnerRing) legend.classList.remove('hidden');
+    if (hasDonut && (lastInnerRing || lastFallbackInnerKm)) legend.classList.remove('hidden');
     else legend.classList.add('hidden');
 
-    const radiusM = usedFallback ? minutesToMeters(maxMin, selectedTransport) : null;
+    // Cap Overpass around: radius at 300 km — anything larger overloads the API
+    const MAX_OVERPASS_RADIUS = 300_000;
+    const radiusM = usedFallback
+      ? Math.min(minutesToMeters(maxMin, selectedTransport), MAX_OVERPASS_RADIUS)
+      : null;
 
     if (currentMode === 'activity') {
       const cats       = [...selectedCats];
@@ -1068,6 +1076,8 @@ async function doSearch() {
 
     if (hasDonut && lastInnerRing) {
       allResults = allResults.filter(item => !pointInPolygon(item.lon, item.lat, lastInnerRing));
+    } else if (hasDonut && lastFallbackInnerKm) {
+      allResults = allResults.filter(item => item.dist >= lastFallbackInnerKm);
     }
 
     const modeLabel = usedFallback ? t('approxCircle') : `${t('roadNetwork')} · ${(t('transportLabel') || {})[selectedTransport] || selectedTransport}`;
@@ -1152,12 +1162,24 @@ function drawDonut(outerRing, innerRing) {
   try { map.fitBounds(L.latLngBounds(outer), { padding: [30, 30] }); } catch {}
 }
 
-function drawCircleFallback(loc, radiusM) {
+function drawCircleFallback(loc, outerRadiusM, innerRadiusM = 0) {
   isoLayer.clearLayers();
-  L.circle([loc.lat, loc.lon], {
-    radius: radiusM, color: ISO_COLOR, fillColor: ISO_COLOR,
-    fillOpacity: 0.12, weight: 1.5,
-  }).addTo(isoLayer);
+  if (innerRadiusM > 0) {
+    // Donut: filled outer ring minus inner hole (two circles with different fills)
+    L.circle([loc.lat, loc.lon], {
+      radius: outerRadiusM, color: ISO_COLOR, fillColor: ISO_COLOR,
+      fillOpacity: 0.12, weight: 1.5,
+    }).addTo(isoLayer);
+    L.circle([loc.lat, loc.lon], {
+      radius: innerRadiusM, color: ISO_COLOR, fill: false,
+      weight: 1.5, dashArray: '5 5', opacity: 0.8,
+    }).addTo(isoLayer);
+  } else {
+    L.circle([loc.lat, loc.lon], {
+      radius: outerRadiusM, color: ISO_COLOR, fillColor: ISO_COLOR,
+      fillOpacity: 0.12, weight: 1.5,
+    }).addTo(isoLayer);
+  }
   addUserMarker();
 }
 
