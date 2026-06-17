@@ -914,6 +914,9 @@ function switchMode(mode) {
   document.getElementById('section-activity').classList.toggle('hidden', isOvernight || isTrip);
   document.getElementById('section-overnight').classList.toggle('hidden', !isOvernight);
   document.getElementById('section-trip').classList.toggle('hidden', !isTrip);
+  // In trip-modus: verberg de gedeelde vervoer/slider-sectie (trip heeft eigen versie)
+  document.getElementById('section-transport')?.classList.toggle('hidden', isTrip);
+  document.getElementById('section-time')?.classList.toggle('hidden', isTrip);
   // Open-now en sort-rij niet relevant voor overnachten/trip
   document.getElementById('open-now-wrapper').classList.toggle('hidden', isOvernight || isTrip);
   document.querySelector('.filters-row')?.classList.toggle('hidden', isTrip);
@@ -2406,7 +2409,7 @@ async function fetchTripPlaces(accType, loc, maxKm) {
 }
 
 // ── Verwerk resultaten ─────────────────────────────────────
-function processTripResults(elements, loc, minKm, maxKm) {
+function processTripResults(elements, loc, minKm, maxKm, outerRing, innerRing) {
   const typeInfo  = TRIP_ACC[tripState.accType];
   const seen      = new Set();
   return elements.map(el => {
@@ -2417,7 +2420,13 @@ function processTripResults(elements, loc, minKm, maxKm) {
     if (seen.has(key)) return null;
     seen.add(key);
     const dist = haversineKm(loc.lat, loc.lon, lat, lon);
-    if (dist < minKm || dist > maxKm) return null;    // buiten donut
+    // Gebruik Valhalla-polygoon als beschikbaar, anders km-cirkel
+    if (outerRing) {
+      if (!pointInPolygon(lon, lat, outerRing)) return null;
+      if (innerRing && pointInPolygon(lon, lat, innerRing)) return null;
+    } else {
+      if (dist < minKm || dist > maxKm) return null;
+    }
     const tags      = el.tags || {};
     const amenities = typeInfo.filters
       .filter(f => f.check(tags))
@@ -2435,16 +2444,26 @@ function processTripResults(elements, loc, minKm, maxKm) {
 }
 
 function applyTripFilters(items) {
-  return items.filter(item => {
-    const typeInfo = TRIP_ACC[tripState.accType];
+  if (!tripState.filters.size) return items;
+  const typeInfo = TRIP_ACC[tripState.accType];
+  // Soft filter: verwijder alleen als een tag *expliciet* 'nee' is (deny),
+  // items met ontbrekende OSM-data blijven gewoon zichtbaar.
+  const kept = items.filter(item => {
     for (const fid of tripState.filters) {
       const def = typeInfo.filters.find(f => f.id === fid);
-      if (def && !def.check(item.tags)) return false;
+      if (def?.deny?.(item.tags)) return false;
     }
-    if (tripState.minStars > 0 && (!item.stars || item.stars < tripState.minStars)) return false;
-    if (tripState.minPersons > 0 && (item.capacity || 0) < tripState.minPersons) return false;
     return true;
   });
+  // Tel bevestigde voorzieningen voor sortering
+  kept.forEach(i => {
+    i._match = [...tripState.filters].reduce((n, fid) => {
+      const def = typeInfo.filters.find(f => f.id === fid);
+      return n + (def?.check?.(i.tags) ? 1 : 0);
+    }, 0);
+  });
+  kept.sort((a, b) => (b._match ?? 0) - (a._match ?? 0) || a.dist - b.dist);
+  return kept;
 }
 
 // ── Kaart: eenvoudige donut als cirkel ────────────────────
@@ -2493,7 +2512,7 @@ function buildTripBookingLinks(item) {
 }
 
 // Grote "Zoek op boekingssites" banner — bovenaan de resultaten
-function buildTripBookBanner(loc, minKm, maxKm) {
+function buildTripBookBanner(loc) {
   const lat = loc.lat.toFixed(4), lon = loc.lon.toFixed(4);
   const ext = 'target="_blank" rel="noopener noreferrer"';
   const accType = tripState.accType;
@@ -2568,7 +2587,7 @@ function renderTripResults(items, minKm, maxKm) {
     `${formatH(tripState.minMin)}–${formatH(tripState.maxMin)} · ${modeLabel} · ~${minKm}–${maxKm} km`;
 
   // Booking banner bovenaan
-  list.insertAdjacentHTML('beforeend', buildTripBookBanner(userLocation, minKm, maxKm));
+  list.insertAdjacentHTML('beforeend', buildTripBookBanner(userLocation));
 
   if (!count) {
     list.insertAdjacentHTML('beforeend', `<li class="empty-state">
@@ -2669,16 +2688,35 @@ async function doTripSearch() {
   lastInnerRing = null; lastFallbackInnerKm = null;
 
   try {
-    // 1. Teken donut meteen op kaart (geen API-call nodig)
+    // 1. Teken alvast een snelle km-cirkel; wordt vervangen door Valhalla-polygoon
     drawTripDonut(userLocation, minKm * 1000, maxKm * 1000);
     document.getElementById('map-legend').classList.add('hidden');
 
-    // 2. Haal verblijven op via Overpass
-    setSearchProgress('Verblijven zoeken…');
-    const raw = await fetchTripPlaces(tripState.accType, userLocation, maxKm);
+    // 2. Haal Valhalla-isochrone en Overpass-data parallel op
+    const valMode    = tripState.transport === 'train' ? 'driving' : tripState.transport;
+    const generalize = tripState.maxMin > 240 ? 300 : tripState.maxMin > 90 ? 150 : 80;
+    setSearchProgress('Isochrone + verblijven ophalen…');
+    const [outerResult, innerResult, rawResult] = await Promise.allSettled([
+      getIsochroneRing(userLocation, tripState.maxMin, valMode, generalize),
+      tripState.minMin > 0
+        ? getIsochroneRing(userLocation, tripState.minMin, valMode, generalize)
+        : Promise.resolve(null),
+      fetchTripPlaces(tripState.accType, userLocation, maxKm),
+    ]);
 
-    // 3. Verwerk: filter op donut, dedup, sorteer
-    const items    = processTripResults(raw, userLocation, minKm, maxKm);
+    const outerRing = outerResult.status === 'fulfilled' ? outerResult.value?.ring  : null;
+    const innerRing = innerResult.status === 'fulfilled'  ? innerResult.value?.ring  : null;
+    const elements  = rawResult.status  === 'fulfilled'  ? rawResult.value          : [];
+
+    // Vervang cirkel met echte Valhalla-polygoon op kaart
+    if (outerRing) {
+      isoLayer.clearLayers();
+      drawLargeIsochrone(outerResult.value.allRings, outerRing, innerRing);
+      addUserMarker();
+    }
+
+    // 3. Verwerk: filter op isochrone-donut (of km-cirkel als Valhalla mislukte)
+    const items    = processTripResults(elements, userLocation, minKm, maxKm, outerRing, innerRing);
     const filtered = applyTripFilters(items);
 
     // 4. Render
